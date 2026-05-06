@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\proyectos\\\\habit_tracker\\\\src\\\\pages\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\proyectos\\\\habit_tracker\\\\src\\\\components\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\proyectos\\\\habit_tracker\\\\public\\\\icons\")"
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    background: #0f172a;
+    color: #f1f5f9;
+    font-family: system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  input, textarea, select {
+    color-scheme: dark;
+  }
+}
