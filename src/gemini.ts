@@ -1,32 +1,49 @@
+import OpenAI from 'openai'
 import type { FoodEntry, ExerciseEntry, WeightEntry } from './types'
 
 const ENV_KEY = import.meta.env.VITE_OPENROUTER_API_KEY as string | undefined
-const MODEL = 'google/gemma-4-26b-a4b-it:free'
-const BASE_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+// Tried in order — all free tier on OpenRouter
+const MODELS = [
+  'google/gemma-4-26b-a4b-it:free',
+  'deepseek/deepseek-chat-v3-5:free',
+  'meta-llama/llama-3.1-8b-instruct:free',
+]
+
+function makeClient(key: string) {
+  return new OpenAI({
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey: key,
+    dangerouslyAllowBrowser: true,
+  })
+}
+
+async function callModel(client: OpenAI, model: string, prompt: string): Promise<string> {
+  try {
+    const res = await client.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    return res.choices[0]?.message?.content?.trim() ?? ''
+  } catch (err) {
+    const status = (err as { status?: number }).status
+    if (status === 429) throw Object.assign(new Error('Rate limited'), { rateLimit: true })
+    throw err
+  }
+}
 
 async function callOpenRouter(key: string, prompt: string): Promise<string> {
-  const res = await fetch(BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
-
-  const data = await res.json() as {
-    choices?: Array<{ message?: { content?: string } }>
-    error?: { message?: string; code?: number }
+  const client = makeClient(key)
+  let lastError: Error = new Error('No models available.')
+  for (const model of MODELS) {
+    try {
+      return await callModel(client, model, prompt)
+    } catch (err) {
+      lastError = err as Error
+      if (!(err as { rateLimit?: boolean }).rateLimit) throw err
+    }
   }
-
-  if (!res.ok || data.error) {
-    throw new Error(`OpenRouter error ${data.error?.code ?? res.status}: ${data.error?.message ?? res.statusText}`)
-  }
-
-  return data.choices?.[0]?.message?.content?.trim() ?? ''
+  throw lastError
 }
 
 export interface MealAnalysis {
