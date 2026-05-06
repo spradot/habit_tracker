@@ -1,60 +1,32 @@
 import type { FoodEntry, ExerciseEntry, WeightEntry } from './types'
 
-interface GeminiResponse {
-  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-}
+const ENV_KEY = import.meta.env.VITE_OPENROUTER_API_KEY as string | undefined
+const MODEL = 'google/gemma-4-26b-a4b-it:free'
+const BASE_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
-const ENV_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
-
-// Models tried in order — all free-tier on AI Studio keys
-const MODELS = [
-  'gemini-3-flash-preview',
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-8b',
-]
-
-function geminiUrl(key: string, model: string) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`
-}
-
-const QUOTA_MSG =
-  '429 quota exceeded. Your key may be from Google Cloud Console (limit: 0 free calls). ' +
-  'Get a free key from aistudio.google.com instead, then paste it in Settings.'
-
-async function callModel(key: string, model: string, prompt: string): Promise<string> {
-  const res = await fetch(geminiUrl(key, model), {
+async function callOpenRouter(key: string, prompt: string): Promise<string> {
+  const res = await fetch(BASE_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [{ role: 'user', content: prompt }],
+    }),
   })
 
-  const data = await res.json() as GeminiResponse & { error?: { message?: string; code?: number } }
-
-  if (data.error?.code === 429) throw Object.assign(new Error(QUOTA_MSG), { quota: true })
-  if (data.error) throw new Error(`Gemini error ${data.error.code ?? ''}: ${data.error.message ?? 'unknown'}`)
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
-
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
-  const finishReason = (data.candidates?.[0] as { finishReason?: string } | undefined)?.finishReason
-  if (!text && finishReason && finishReason !== 'STOP') {
-    throw new Error(`Response blocked (reason: ${finishReason}). Try rephrasing.`)
+  const data = await res.json() as {
+    choices?: Array<{ message?: { content?: string } }>
+    error?: { message?: string; code?: number }
   }
 
-  return text
-}
-
-async function callGemini(key: string, prompt: string): Promise<string> {
-  let lastError: Error = new Error('No models available.')
-  for (const model of MODELS) {
-    try {
-      return await callModel(key, model, prompt)
-    } catch (err) {
-      lastError = err as Error
-      // If quota on this model, try next; otherwise throw immediately
-      if (!(err as { quota?: boolean }).quota) throw err
-    }
+  if (!res.ok || data.error) {
+    throw new Error(`OpenRouter error ${data.error?.code ?? res.status}: ${data.error?.message ?? res.statusText}`)
   }
-  throw lastError
+
+  return data.choices?.[0]?.message?.content?.trim() ?? ''
 }
 
 export interface MealAnalysis {
@@ -71,7 +43,7 @@ export async function analyzeMealText(
   apiKey: string
 ): Promise<MealAnalysis> {
   const key = apiKey || ENV_KEY || ''
-  if (!key) throw new Error('No Gemini API key configured.')
+  if (!key) throw new Error('No OpenRouter API key configured.')
 
   const prompt = `You are a clinical nutritionist. Analyze this meal description: "${description}".
 
@@ -90,11 +62,10 @@ Rules:
   "feedback": "Per-item breakdown + total + one short critique"
 }`
 
-  const raw = await callGemini(key, prompt)
+  const raw = await callOpenRouter(key, prompt)
 
-  // Extract the first {...} block regardless of surrounding markdown/text
   const match = raw.match(/\{[\s\S]*\}/)
-  if (!match) throw new Error(`Gemini returned no JSON.\n\nRaw response:\n${raw || '(empty)'}`)
+  if (!match) throw new Error(`Model returned no JSON.\n\nRaw response:\n${raw || '(empty)'}`)
 
   interface RawAnalysis {
     name?: string
@@ -109,7 +80,7 @@ Rules:
   try {
     parsed = JSON.parse(match[0])
   } catch {
-    throw new Error(`Could not parse Gemini response as JSON.\n\nRaw:\n${raw}`)
+    throw new Error(`Could not parse model response as JSON.\n\nRaw:\n${raw}`)
   }
 
   return {
@@ -130,7 +101,7 @@ export async function getWeightLossInsight(
   dailyCalorieGoal: number
 ): Promise<string> {
   const key = apiKey || ENV_KEY || ''
-  if (!key) return 'Add a Gemini API key in Settings to get AI insights.'
+  if (!key) return 'Add an OpenRouter API key in Settings to get AI insights.'
 
   const totalCals = food.reduce((s, f) => s + f.calories, 0)
   const totalProtein = food.reduce((s, f) => s + f.protein, 0)
@@ -150,8 +121,8 @@ Data:
 Keep it short, direct, and motivating.`
 
   try {
-    return await callGemini(key, prompt) || 'No response from Gemini.'
+    return await callOpenRouter(key, prompt) || 'No response from model.'
   } catch {
-    return 'Could not reach Gemini API. Check your connection or API key.'
+    return 'Could not reach OpenRouter API. Check your connection or API key.'
   }
 }

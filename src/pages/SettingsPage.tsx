@@ -147,16 +147,16 @@ export default function SettingsPage() {
         </button>
       </Card>
 
-      {/* Gemini API */}
+      {/* OpenRouter API */}
       <Card className="space-y-3">
-        <p className="text-sm font-medium">Gemini AI (free)</p>
-        <p className="text-xs text-slate-400">Get AI-powered weekly insights on your progress. Get a free key at <span className="text-emerald-400">aistudio.google.com</span></p>
+        <p className="text-sm font-medium">OpenRouter AI (free)</p>
+        <p className="text-xs text-slate-400">Get AI-powered weekly insights on your progress. Get a free key at <span className="text-emerald-400">openrouter.ai</span></p>
         <input
           className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none font-mono"
           type="password"
-          placeholder="AIza…"
-          value={settings.geminiApiKey}
-          onChange={e => update({ geminiApiKey: e.target.value })}
+          placeholder="sk-or-…"
+          value={settings.openrouterApiKey}
+          onChange={e => update({ openrouterApiKey: e.target.value })}
         />
       </Card>
 
@@ -173,7 +173,7 @@ export default function SettingsPage() {
           <strong className="text-slate-300 block">HabitTrack v0.1.0</strong>
           All data stored locally on device. No account needed.<br />
           Food data: Open Food Facts (CC BY-SA 4.0)<br />
-          AI: Google Gemini 2.0 Flash (free tier)
+          AI: OpenRouter — google/gemma-4-26b-a4b-it (free)
         </p>
       </Card>
     </div>

@@ -88,7 +88,7 @@ export default function CaloriesPage() {
     setAiResult(null)
     setAiError('')
     try {
-      const result = await analyzeMealText(mealText, settings.geminiApiKey)
+      const result = await analyzeMealText(mealText, settings.openrouterApiKey)
       setAiResult(result)
       setAiState('preview')
     } catch (err) {
