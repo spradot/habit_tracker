@@ -49,12 +49,12 @@ export default function Dashboard({ onNavigate }: Props) {
   const todaySteps = stepsStore.forDate(today())
 
   const fetchInsight = async () => {
-    if (!settings.openrouterApiKey) { setInsight('Add an OpenRouter API key in Settings to get AI-powered insights.'); return }
+    if (!settings.deepseekApiKey) { setInsight('Add a DeepSeek API key in Settings to get AI-powered insights.'); return }
     setLoadingInsight(true)
     const week7Food = days7.flatMap(d => foodStore.forDate(d))
     const week7Ex = days7.flatMap(d => exerciseStore.forDate(d))
     const week7W = allWeights.filter(e => days7.includes(e.date))
-    const text = await getWeightLossInsight(settings.openrouterApiKey, week7Food, week7Ex, week7W, goal)
+    const text = await getWeightLossInsight(settings.deepseekApiKey, week7Food, week7Ex, week7W, goal)
     setInsight(text)
     setLoadingInsight(false)
   }

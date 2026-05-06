@@ -193,7 +193,7 @@ export async function syncAllFromRemote() {
 export const DEFAULT_SETTINGS: Settings = {
   goals: { calories: 1800, protein: 120, waterGlasses: 8, steps: 8000 },
   weightUnit: 'kg',
-  openrouterApiKey: '',
+  deepseekApiKey: '',
   notificationsEnabled: false,
   calorieAlertPercent: 80,
 }

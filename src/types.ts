@@ -60,7 +60,7 @@ export interface PersonalStats {
 export interface Settings {
   goals: DailyGoals
   weightUnit: 'kg' | 'lbs'
-  openrouterApiKey: string
+  deepseekApiKey: string
   notificationsEnabled: boolean
   calorieAlertPercent: number
   personal?: PersonalStats

@@ -147,16 +147,16 @@ export default function SettingsPage() {
         </button>
       </Card>
 
-      {/* OpenRouter API */}
+      {/* DeepSeek API */}
       <Card className="space-y-3">
-        <p className="text-sm font-medium">OpenRouter AI (free)</p>
-        <p className="text-xs text-slate-400">Get AI-powered weekly insights on your progress. Get a free key at <span className="text-emerald-400">openrouter.ai</span></p>
+        <p className="text-sm font-medium">DeepSeek AI</p>
+        <p className="text-xs text-slate-400">Get AI-powered weekly insights on your progress. Get a key at <span className="text-emerald-400">platform.deepseek.com</span></p>
         <input
           className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none font-mono"
           type="password"
-          placeholder="sk-or-…"
-          value={settings.openrouterApiKey}
-          onChange={e => update({ openrouterApiKey: e.target.value })}
+          placeholder="sk-…"
+          value={settings.deepseekApiKey}
+          onChange={e => update({ deepseekApiKey: e.target.value })}
         />
       </Card>
 
@@ -173,7 +173,7 @@ export default function SettingsPage() {
           <strong className="text-slate-300 block">HabitTrack v0.1.0</strong>
           All data stored locally on device. No account needed.<br />
           Food data: Open Food Facts (CC BY-SA 4.0)<br />
-          AI: OpenRouter — google/gemma-4-26b-a4b-it (free)
+          AI: DeepSeek — deepseek-chat
         </p>
       </Card>
     </div>

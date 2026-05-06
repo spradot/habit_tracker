@@ -1,49 +1,23 @@
 import OpenAI from 'openai'
 import type { FoodEntry, ExerciseEntry, WeightEntry } from './types'
 
-const ENV_KEY = import.meta.env.VITE_OPENROUTER_API_KEY as string | undefined
-
-// Tried in order — all free tier on OpenRouter
-const MODELS = [
-  'google/gemma-4-26b-a4b-it:free',
-  'deepseek/deepseek-chat-v3-5:free',
-  'meta-llama/llama-3.1-8b-instruct:free',
-]
+const ENV_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY as string | undefined
 
 function makeClient(key: string) {
   return new OpenAI({
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: 'https://api.deepseek.com',
     apiKey: key,
     dangerouslyAllowBrowser: true,
   })
 }
 
-async function callModel(client: OpenAI, model: string, prompt: string): Promise<string> {
-  try {
-    const res = await client.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-    })
-    return res.choices[0]?.message?.content?.trim() ?? ''
-  } catch (err) {
-    const status = (err as { status?: number }).status
-    if (status === 429) throw Object.assign(new Error('Rate limited'), { rateLimit: true })
-    throw err
-  }
-}
-
-async function callOpenRouter(key: string, prompt: string): Promise<string> {
+async function callDeepSeek(key: string, prompt: string): Promise<string> {
   const client = makeClient(key)
-  let lastError: Error = new Error('No models available.')
-  for (const model of MODELS) {
-    try {
-      return await callModel(client, model, prompt)
-    } catch (err) {
-      lastError = err as Error
-      if (!(err as { rateLimit?: boolean }).rateLimit) throw err
-    }
-  }
-  throw lastError
+  const res = await client.chat.completions.create({
+    model: 'deepseek-chat',
+    messages: [{ role: 'user', content: prompt }],
+  })
+  return res.choices?.[0]?.message?.content?.trim() ?? ''
 }
 
 export interface MealAnalysis {
@@ -60,7 +34,7 @@ export async function analyzeMealText(
   apiKey: string
 ): Promise<MealAnalysis> {
   const key = apiKey || ENV_KEY || ''
-  if (!key) throw new Error('No OpenRouter API key configured.')
+  if (!key) throw new Error('No DeepSeek API key configured.')
 
   const prompt = `You are a clinical nutritionist. Analyze this meal description: "${description}".
 
@@ -79,7 +53,7 @@ Rules:
   "feedback": "Per-item breakdown + total + one short critique"
 }`
 
-  const raw = await callOpenRouter(key, prompt)
+  const raw = await callDeepSeek(key, prompt)
 
   const match = raw.match(/\{[\s\S]*\}/)
   if (!match) throw new Error(`Model returned no JSON.\n\nRaw response:\n${raw || '(empty)'}`)
@@ -118,7 +92,7 @@ export async function getWeightLossInsight(
   dailyCalorieGoal: number
 ): Promise<string> {
   const key = apiKey || ENV_KEY || ''
-  if (!key) return 'Add an OpenRouter API key in Settings to get AI insights.'
+  if (!key) return 'Add a DeepSeek API key in Settings to get AI insights.'
 
   const totalCals = food.reduce((s, f) => s + f.calories, 0)
   const totalProtein = food.reduce((s, f) => s + f.protein, 0)
@@ -138,8 +112,8 @@ Data:
 Keep it short, direct, and motivating.`
 
   try {
-    return await callOpenRouter(key, prompt) || 'No response from model.'
+    return await callDeepSeek(key, prompt) || 'No response from model.'
   } catch {
-    return 'Could not reach OpenRouter API. Check your connection or API key.'
+    return 'Could not reach DeepSeek API. Check your connection or API key.'
   }
 }
