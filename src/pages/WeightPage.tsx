@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, TrendingDown, TrendingUp, Minus, Footprints } from 'lucide-react'
 import { weightStore, stepsStore, foodStore, exerciseStore, settingsStore } from '../storage'
+
 import { today, nowTime, uid, fmtDate, last7Days, kgToLbs } from '../utils'
 import type { WeightEntry, StepsEntry } from '../types'
 import Card from '../components/Card'
@@ -17,8 +18,6 @@ export default function WeightPage() {
   const [stepsEntries, setStepsEntries] = useState<StepsEntry[]>([])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ weight: '', notes: '', time: nowTime() })
-  const [editingSteps, setEditingSteps] = useState(false)
-  const [stepsInput, setStepsInput] = useState('')
 
   const reload = () => {
     setEntries(weightStore.getAll())
@@ -39,15 +38,6 @@ export default function WeightPage() {
     reload()
     setShowForm(false)
     setForm({ weight: '', notes: '', time: nowTime() })
-  }
-
-  const saveSteps = () => {
-    const n = Number(stepsInput)
-    if (!n) { setEditingSteps(false); return }
-    stepsStore.set({ id: uid(), date: today(), steps: n, source: 'manual' })
-    reload()
-    setEditingSteps(false)
-    setStepsInput('')
   }
 
   const remove = (id: string) => { weightStore.remove(id); reload() }
@@ -94,38 +84,24 @@ export default function WeightPage() {
             </div>
           )}
         </Card>
-        <Card className="cursor-pointer" onClick={() => { if (!editingSteps) { setStepsInput(todaySteps?.steps.toString() ?? ''); setEditingSteps(true) } }}>
+        <Card>
           <div className="flex items-center justify-between mb-1">
             <p className="text-xs text-slate-400">Steps today</p>
-            {!editingSteps && <Footprints size={13} className="text-blue-400" />}
+            <Footprints size={13} className="text-blue-400" />
           </div>
-          {editingSteps ? (
-            <div className="flex gap-1.5 mt-1" onClick={e => e.stopPropagation()}>
-              <input
-                className="flex-1 bg-slate-700 rounded-lg px-2 py-1.5 text-lg font-bold outline-none w-0"
-                type="number" placeholder="0" autoFocus
-                value={stepsInput}
-                onChange={e => setStepsInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') saveSteps(); if (e.key === 'Escape') setEditingSteps(false) }}
-              />
-              <button onClick={saveSteps} className="bg-emerald-600 rounded-lg px-2.5 text-sm font-medium">✓</button>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-end gap-1">
-                <p className="text-3xl font-bold">{todaySteps ? todaySteps.steps.toLocaleString() : '—'}</p>
-                {todaySteps && <p className="text-xs text-slate-400 mb-1">/ {stepsGoal.toLocaleString()}</p>}
-              </div>
-              {!todaySteps && <p className="text-xs text-slate-500 mt-1">Tap to log</p>}
-            </>
-          )}
-          {todaySteps && !editingSteps && (
+          <div className="flex items-end gap-1">
+            <p className="text-3xl font-bold">{todaySteps ? todaySteps.steps.toLocaleString() : '—'}</p>
+            {todaySteps && <p className="text-xs text-slate-400 mb-1">/ {stepsGoal.toLocaleString()}</p>}
+          </div>
+          {todaySteps ? (
             <div className="mt-1.5 h-1.5 bg-slate-700 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${todaySteps.steps >= stepsGoal ? 'bg-emerald-400' : 'bg-blue-400'}`}
                 style={{ width: `${Math.min((todaySteps.steps / stepsGoal) * 100, 100)}%` }}
               />
             </div>
+          ) : (
+            <p className="text-xs text-slate-500 mt-1">Log in Steps tab</p>
           )}
         </Card>
       </div>
