@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Dumbbell, Utensils, Scale, Sparkles, Loader } from 'lucide-react'
-import { foodStore, exerciseStore, weightStore, settingsStore } from '../storage'
+import { Dumbbell, Utensils, Scale, Sparkles, Loader, Footprints } from 'lucide-react'
+import { foodStore, exerciseStore, weightStore, stepsStore, settingsStore } from '../storage'
 import { getWeightLossInsight } from '../gemini'
-import { today, last7Days, kgToLbs } from '../utils'
+import { today, last7Days, kgToLbs, uid } from '../utils'
 import Card from '../components/Card'
 import RingProgress from '../components/RingProgress'
 import TDEECard from '../components/TDEECard'
@@ -44,6 +44,18 @@ export default function Dashboard({ onNavigate }: Props) {
   const [calorieGoal, setCalorieGoal] = useState(goal)
   const [insight, setInsight] = useState('')
   const [loadingInsight, setLoadingInsight] = useState(false)
+
+  const stepsGoal = settings.goals.steps ?? 8000
+  const todaySteps = stepsStore.forDate(today())
+  const [editingSteps, setEditingSteps] = useState(false)
+  const [stepsInput, setStepsInput] = useState('')
+
+  const saveSteps = () => {
+    const n = Number(stepsInput)
+    if (n) stepsStore.set({ id: uid(), date: today(), steps: n, source: 'manual' })
+    setEditingSteps(false)
+    setStepsInput('')
+  }
 
   const fetchInsight = async () => {
     if (!settings.geminiApiKey) { setInsight('Add a Gemini API key in Settings to get AI-powered insights.'); return }
@@ -95,15 +107,28 @@ export default function Dashboard({ onNavigate }: Props) {
           </Card>
         </button>
 
-        <button onClick={() => onNavigate('weight')} className="flex flex-col items-center">
-          <Card className="w-full flex flex-col items-center justify-center gap-2 py-3 h-full">
-            <Scale size={28} className={latestWeight?.date === today() ? 'text-emerald-400' : 'text-slate-500'} />
-            <div className="text-center">
-              <p className="text-lg font-bold">{latestWeight ? convert(latestWeight.weight) : '—'}</p>
-              <p className="text-[10px] text-slate-400">{unit} today</p>
-            </div>
+        <div className="flex flex-col" onClick={() => { if (!editingSteps) { setStepsInput(todaySteps?.steps.toString() ?? ''); setEditingSteps(true) } }}>
+          <Card className="w-full flex flex-col items-center justify-center gap-1 py-3 h-full cursor-pointer">
+            <Footprints size={22} className={todaySteps ? 'text-blue-400' : 'text-slate-500'} />
+            {editingSteps ? (
+              <div className="flex flex-col gap-1 items-center w-full px-1" onClick={e => e.stopPropagation()}>
+                <input
+                  className="w-full bg-slate-700 rounded-lg px-2 py-1 text-sm font-bold text-center outline-none"
+                  type="number" placeholder="steps" autoFocus
+                  value={stepsInput}
+                  onChange={e => setStepsInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveSteps(); if (e.key === 'Escape') setEditingSteps(false) }}
+                />
+                <button onClick={saveSteps} className="bg-emerald-600 rounded-lg px-3 py-0.5 text-xs font-medium">Save</button>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-lg font-bold leading-none">{todaySteps ? (todaySteps.steps >= 1000 ? `${(todaySteps.steps / 1000).toFixed(1)}k` : todaySteps.steps) : '—'}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">{todaySteps ? 'steps' : 'tap to log'}</p>
+              </div>
+            )}
           </Card>
-        </button>
+        </div>
       </div>
 
       {/* Weekly chart */}

@@ -16,7 +16,9 @@ export default function WeightPage() {
   const [entries, setEntries] = useState<WeightEntry[]>([])
   const [stepsEntries, setStepsEntries] = useState<StepsEntry[]>([])
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ weight: '', steps: '', notes: '', time: nowTime() })
+  const [form, setForm] = useState({ weight: '', notes: '', time: nowTime() })
+  const [editingSteps, setEditingSteps] = useState(false)
+  const [stepsInput, setStepsInput] = useState('')
 
   const reload = () => {
     setEntries(weightStore.getAll())
@@ -27,21 +29,25 @@ export default function WeightPage() {
   const convert = (kg: number) => unit === 'lbs' ? kgToLbs(kg) : kg
 
   const saveEntry = () => {
-    if (!form.weight && !form.steps) return
-    if (form.weight) {
-      const entry: WeightEntry = {
-        id: uid(), date: today(), time: form.time,
-        weight: unit === 'lbs' ? Math.round(Number(form.weight) / 2.20462 * 10) / 10 : Number(form.weight),
-        notes: form.notes || undefined,
-      }
-      weightStore.add(entry)
+    if (!form.weight) return
+    const entry: WeightEntry = {
+      id: uid(), date: today(), time: form.time,
+      weight: unit === 'lbs' ? Math.round(Number(form.weight) / 2.20462 * 10) / 10 : Number(form.weight),
+      notes: form.notes || undefined,
     }
-    if (form.steps) {
-      stepsStore.set({ id: uid(), date: today(), steps: Number(form.steps), source: 'manual' })
-    }
+    weightStore.add(entry)
     reload()
     setShowForm(false)
-    setForm({ weight: '', steps: '', notes: '', time: nowTime() })
+    setForm({ weight: '', notes: '', time: nowTime() })
+  }
+
+  const saveSteps = () => {
+    const n = Number(stepsInput)
+    if (!n) { setEditingSteps(false); return }
+    stepsStore.set({ id: uid(), date: today(), steps: n, source: 'manual' })
+    reload()
+    setEditingSteps(false)
+    setStepsInput('')
   }
 
   const remove = (id: string) => { weightStore.remove(id); reload() }
@@ -88,13 +94,32 @@ export default function WeightPage() {
             </div>
           )}
         </Card>
-        <Card>
-          <p className="text-xs text-slate-400 mb-1">Steps today</p>
-          <div className="flex items-end gap-1">
-            <p className="text-3xl font-bold">{todaySteps ? todaySteps.steps.toLocaleString() : '—'}</p>
-            {todaySteps && <p className="text-xs text-slate-400 mb-1">/ {stepsGoal.toLocaleString()}</p>}
+        <Card className="cursor-pointer" onClick={() => { if (!editingSteps) { setStepsInput(todaySteps?.steps.toString() ?? ''); setEditingSteps(true) } }}>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs text-slate-400">Steps today</p>
+            {!editingSteps && <Footprints size={13} className="text-blue-400" />}
           </div>
-          {todaySteps && (
+          {editingSteps ? (
+            <div className="flex gap-1.5 mt-1" onClick={e => e.stopPropagation()}>
+              <input
+                className="flex-1 bg-slate-700 rounded-lg px-2 py-1.5 text-lg font-bold outline-none w-0"
+                type="number" placeholder="0" autoFocus
+                value={stepsInput}
+                onChange={e => setStepsInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveSteps(); if (e.key === 'Escape') setEditingSteps(false) }}
+              />
+              <button onClick={saveSteps} className="bg-emerald-600 rounded-lg px-2.5 text-sm font-medium">✓</button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end gap-1">
+                <p className="text-3xl font-bold">{todaySteps ? todaySteps.steps.toLocaleString() : '—'}</p>
+                {todaySteps && <p className="text-xs text-slate-400 mb-1">/ {stepsGoal.toLocaleString()}</p>}
+              </div>
+              {!todaySteps && <p className="text-xs text-slate-500 mt-1">Tap to log</p>}
+            </>
+          )}
+          {todaySteps && !editingSteps && (
             <div className="mt-1.5 h-1.5 bg-slate-700 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${todaySteps.steps >= stepsGoal ? 'bg-emerald-400' : 'bg-blue-400'}`}
@@ -123,12 +148,8 @@ export default function WeightPage() {
               <input className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none" type="time" value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} />
             </div>
           </div>
-          <div>
-            <label className="text-xs text-slate-400 block mb-1 flex items-center gap-1"><Footprints size={11} /> Steps (from Mi Fitness app)</label>
-            <input className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none" type="number" placeholder={`goal: ${stepsGoal.toLocaleString()}`} value={form.steps} onChange={e => setForm(f => ({ ...f, steps: e.target.value }))} />
-          </div>
           <input className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none" placeholder="Notes (optional)" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
-          <p className="text-xs text-slate-400">💡 6am before workout · check Mi Fitness for yesterday's steps</p>
+          <p className="text-xs text-slate-400">💡 6am before workout for best consistency</p>
           <div className="flex gap-2">
             <button onClick={() => setShowForm(false)} className="flex-1 bg-slate-700 rounded-xl py-2 text-sm">Cancel</button>
             <button onClick={saveEntry} className="flex-1 bg-emerald-600 rounded-xl py-2 text-sm font-medium">Save</button>
