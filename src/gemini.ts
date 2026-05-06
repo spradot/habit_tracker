@@ -14,7 +14,7 @@ function makeClient(key: string) {
 async function callDeepSeek(key: string, prompt: string): Promise<string> {
   const client = makeClient(key)
   const res = await client.chat.completions.create({
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     messages: [{ role: 'user', content: prompt }],
   })
   return res.choices?.[0]?.message?.content?.trim() ?? ''
