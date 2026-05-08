@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, ChevronLeft, ChevronRight, Trophy, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, Trophy, ChevronDown, ChevronUp, Pencil } from 'lucide-react'
 import { exerciseStore } from '../storage'
 import { today, uid, fmtDate } from '../utils'
 import type { ExerciseEntry, ExerciseSet } from '../types'
@@ -13,6 +13,8 @@ export default function ExercisePage() {
   const [entries, setEntries] = useState<ExerciseEntry[]>([])
   const [showForm, setShowForm] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editSets, setEditSets] = useState<ExerciseSet[]>([])
 
   const [form, setForm] = useState({
     name: '', category: 'strength' as ExerciseEntry['category'],
@@ -60,6 +62,27 @@ export default function ExercisePage() {
   }
 
   const remove = (id: string) => { exerciseStore.remove(id); reload() }
+
+  const startEdit = (e: ExerciseEntry) => {
+    setEditSets(e.sets.map(s => ({ ...s })))
+    setEditingId(e.id)
+  }
+  const cancelEdit = () => setEditingId(null)
+  const updateEditSet = (i: number, field: keyof ExerciseSet, val: string) => {
+    setEditSets(prev => {
+      const next = [...prev]
+      next[i] = { ...next[i], [field]: field === 'unit' ? val : Number(val) }
+      return next
+    })
+  }
+  const saveEdit = (entry: ExerciseEntry) => {
+    const prevPR = exerciseStore.getPR(entry.name)
+    const maxWeight = Math.max(...editSets.map(s => s.weight), 0)
+    const isPR = entry.category === 'strength' && maxWeight > prevPR && maxWeight > 0
+    exerciseStore.update({ ...entry, sets: editSets, pr: isPR })
+    setEditingId(null)
+    reload()
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -160,16 +183,57 @@ export default function ExercisePage() {
             </div>
 
             {expandedId === e.id && e.sets.length > 0 && (
-              <div className="mt-3 border-t border-slate-700 pt-2 space-y-1">
-                {e.sets.map((s, i) => (
-                  <div key={i} className="flex text-xs text-slate-300 gap-4">
-                    <span className="text-slate-500">Set {i + 1}</span>
-                    <span>{s.reps} reps</span>
-                    <span>{s.weight} {s.unit}</span>
-                    <span className="text-slate-500">{Math.round(s.reps * s.weight)} vol</span>
-                  </div>
-                ))}
-                {e.notes && <p className="text-xs text-slate-400 mt-1 italic">{e.notes}</p>}
+              <div className="mt-3 border-t border-slate-700 pt-2 space-y-2">
+                {editingId === e.id ? (
+                  <>
+                    {editSets.map((s, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <span className="text-xs text-slate-500 w-9">Set {i + 1}</span>
+                        <input
+                          className="flex-1 bg-slate-700 rounded-lg px-2 py-1 text-sm outline-none text-center"
+                          type="number" value={s.reps || ''}
+                          onChange={ev => updateEditSet(i, 'reps', ev.target.value)}
+                        />
+                        <input
+                          className="flex-1 bg-slate-700 rounded-lg px-2 py-1 text-sm outline-none text-center"
+                          type="number" value={s.weight || ''}
+                          onChange={ev => updateEditSet(i, 'weight', ev.target.value)}
+                        />
+                        <select
+                          className="bg-slate-700 rounded-lg px-1 py-1 text-sm outline-none"
+                          value={s.unit} onChange={ev => updateEditSet(i, 'unit', ev.target.value)}>
+                          <option value="kg">kg</option>
+                          <option value="lbs">lbs</option>
+                        </select>
+                        {editSets.length > 1 && (
+                          <button onClick={() => setEditSets(prev => prev.filter((_, j) => j !== i))} className="text-slate-500 active:text-rose-400"><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setEditSets(prev => [...prev, { reps: 0, weight: prev[prev.length - 1]?.weight ?? 0, unit: prev[prev.length - 1]?.unit ?? 'kg' }])}
+                      className="text-xs text-emerald-400">+ Add set</button>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={cancelEdit} className="flex-1 bg-slate-700 rounded-xl py-1.5 text-xs">Cancel</button>
+                      <button onClick={() => saveEdit(e)} className="flex-1 bg-emerald-600 rounded-xl py-1.5 text-xs font-medium">Save</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {e.sets.map((s, i) => (
+                      <div key={i} className="flex text-xs text-slate-300 gap-4">
+                        <span className="text-slate-500">Set {i + 1}</span>
+                        <span>{s.reps} reps</span>
+                        <span>{s.weight} {s.unit}</span>
+                        <span className="text-slate-500">{Math.round(s.reps * s.weight)} vol</span>
+                      </div>
+                    ))}
+                    {e.notes && <p className="text-xs text-slate-400 mt-1 italic">{e.notes}</p>}
+                    <button onClick={() => startEdit(e)} className="flex items-center gap-1 text-xs text-slate-400 active:text-emerald-400 pt-1">
+                      <Pencil size={12} /> Edit sets
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </Card>

@@ -82,6 +82,15 @@ export const exerciseStore = {
       .then(({ error }) => { if (error) console.warn('Supabase exercise delete:', error.message) })
   },
 
+  update: (entry: ExerciseEntry) => {
+    exerciseStore.save(exerciseStore.getAll().map(e => e.id === entry.id ? entry : e))
+    supabase?.from('exercise_entries').update({
+      sets: entry.sets, duration_min: entry.durationMin ?? null,
+      notes: entry.notes ?? null, pr: entry.pr ?? false,
+    }).eq('id', entry.id)
+      .then(({ error }) => { if (error) console.warn('Supabase exercise update:', error.message) })
+  },
+
   forDate: (date: string) => exerciseStore.getAll().filter(e => e.date === date),
 
   getPR: (name: string): number => {
