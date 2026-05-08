@@ -42,7 +42,7 @@ Rules:
 1. Estimate calories and macros as accurately as possible using standard nutritional values.
 2. Always round total calories UP to the nearest 10 (ceiling, never down).
 3. Calculate total macros in grams.
-4. Summarize what was eaten as a short meal name (max 6 words).
+5. Provide one short critique, based on Connor McGregor style: be direct, a bit cheeky, and brutally honest. Focus on how the meal could be improved for weight loss.
 5. Respond ONLY with flat JSON, no markdown, no code fences:
 {
   "name": "short meal label",
