@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, Footprints, Check, Trash2, Trophy } from 'lucide-react'
-import { stepsStore, settingsStore } from '../storage'
+import { stepsStore, settingsStore, refreshTodayScore } from '../storage'
 import { today, uid, fmtDate, last7Days } from '../utils'
 import type { StepsEntry } from '../types'
 import Card from '../components/Card'
@@ -40,6 +40,7 @@ export default function StepsPage() {
     if (!n) return
     stepsStore.set({ id: entry?.id ?? uid(), date, steps: n, source: 'manual' })
     reload()
+    refreshTodayScore()
     setInput('')
     setSaved(true)
     setTimeout(() => setSaved(false), 1500)
@@ -48,6 +49,7 @@ export default function StepsPage() {
   const remove = () => {
     stepsStore.remove(date)
     reload()
+    refreshTodayScore()
   }
 
   // Weekly chart — last 14 days

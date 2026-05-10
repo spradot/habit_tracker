@@ -5,6 +5,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, MuscleGroup[]> = {
   'Bench Press': ['chest', 'triceps', 'shoulders'],
   'Incline Bench Press': ['chest', 'shoulders', 'triceps'],
   'Incline Dumbbell Press': ['chest', 'shoulders', 'triceps'],
+  'Dumbbell Incline Press': ['chest', 'shoulders', 'triceps'],
   'Chest Press': ['chest', 'triceps', 'shoulders'],
   'Cable Fly': ['chest'],
   'Dumbbell Fly': ['chest'],
@@ -30,9 +31,11 @@ export const EXERCISE_MUSCLE_MAP: Record<string, MuscleGroup[]> = {
 
   // Shoulders
   'Overhead Press': ['shoulders', 'triceps'],
+  'Overhead Dumbbell Press': ['shoulders', 'triceps'],
   'Military Press': ['shoulders', 'triceps'],
   'Dumbbell Shoulder Press': ['shoulders', 'triceps'],
   'Lateral Raise': ['shoulders'],
+  'Lateral Raises': ['shoulders'],
   'Front Raise': ['shoulders'],
   'Rear Delt Fly': ['shoulders', 'back'],
   'Arnold Press': ['shoulders', 'triceps'],
@@ -94,6 +97,7 @@ export const EXERCISE_MUSCLE_MAP: Record<string, MuscleGroup[]> = {
   // Calves
   'Calf Raise': ['calves'],
   'Standing Calf Raise': ['calves'],
+  'Standing Calf Raises': ['calves'],
   'Seated Calf Raise': ['calves'],
 
   // Cardio

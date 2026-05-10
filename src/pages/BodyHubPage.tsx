@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, LineChart, Line, Tool
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Plus, Sparkles, RefreshCw, Star, Trophy, Flame } from 'lucide-react'
 import {
   weightStore, bodyMeasurementStore, sleepStore, dayScoreStore,
-  settingsStore, foodStore, exerciseStore, stepsStore, refreshTodayScore,
+  settingsStore, foodStore, exerciseStore, stepsStore, refreshTodayScore, backfillScores,
 } from '../storage'
 import { getRecompositionInsight } from '../gemini'
 import { today, uid, last7Days, fmtDate } from '../utils'
@@ -419,11 +419,20 @@ export default function BodyHubPage() {
       <Card className="space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Weekly Score</p>
-          {rewardState && (
-            <span className="text-xs bg-emerald-800/60 text-emerald-300 px-2 py-0.5 rounded-full">
-              Lv. {rewardState.level}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {rewardState && (
+              <span className="text-xs bg-emerald-800/60 text-emerald-300 px-2 py-0.5 rounded-full">
+                Lv. {rewardState.level}
+              </span>
+            )}
+            <button
+              onClick={() => { backfillScores(); setRewardState(dayScoreStore.computeRewardState()) }}
+              title="Recalculate all scores from history"
+              className="text-slate-500 active:text-emerald-400"
+            >
+              <RefreshCw size={13} />
+            </button>
+          </div>
         </div>
 
         {rewardState && (
@@ -525,14 +534,85 @@ export default function BodyHubPage() {
           <p className="text-sm text-slate-400 text-center py-4">Analyzing your progress...</p>
         )}
 
-        {insight && (
-          <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{insight}</p>
-        )}
+        {insight && <InsightView text={insight} />}
 
         <p className="text-xs text-slate-600">
           Goal: {settings.recompNote || `Reach ${goalWeight} kg, reduce belly fat and gynecomastia`}
         </p>
       </Card>
+    </div>
+  )
+}
+
+// ── Insight renderer ──────────────────────────────────────────────────────────
+
+function Bold({ text }: { text: string }) {
+  const parts = text.split(/\*\*(.+?)\*\*/)
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1
+          ? <strong key={i} className="text-white font-semibold">{p}</strong>
+          : <span key={i}>{p}</span>
+      )}
+    </>
+  )
+}
+
+function InsightView({ text }: { text: string }) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+
+  const bullets: { num: string; title: string; body: string }[] = []
+  let nextAction = ''
+  let header = ''
+
+  for (const line of lines) {
+    const bulletMatch = line.match(/^(\d+)[.)]\s+\*\*(.+?)\*\*\s*[–—-]\s*(.+)/)
+    const boldBullet  = line.match(/^(\d+)[.)]\s+\*\*(.+?)\*\*$/)
+    const nextMatch   = line.match(/^\*\*Next Action[^*]*\*\*[:\s]*(.+)/i)
+    const nextPlain   = line.match(/^Next Action[:\s]+(.+)/i)
+
+    if (bulletMatch) {
+      bullets.push({ num: bulletMatch[1], title: bulletMatch[2], body: bulletMatch[3] })
+    } else if (boldBullet) {
+      bullets.push({ num: boldBullet[1], title: boldBullet[2], body: '' })
+    } else if (nextMatch) {
+      nextAction = nextMatch[1]
+    } else if (nextPlain) {
+      nextAction = nextPlain[1]
+    } else if (bullets.length === 0 && !line.match(/^\d+[.)]/)) {
+      header = line.replace(/\*\*/g, '')
+    }
+  }
+
+  if (bullets.length === 0 && !nextAction) {
+    return <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{text}</p>
+  }
+
+  return (
+    <div className="space-y-2">
+      {header && (
+        <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">{header}</p>
+      )}
+
+      {bullets.map(b => (
+        <div key={b.num} className="flex gap-3 items-start">
+          <span className="mt-0.5 w-5 h-5 rounded-full bg-emerald-900 text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0">
+            {b.num}
+          </span>
+          <p className="text-sm text-slate-300 leading-relaxed flex-1">
+            <strong className="text-white font-semibold">{b.title}</strong>
+            {b.body && <> — {b.body}</>}
+          </p>
+        </div>
+      ))}
+
+      {nextAction && (
+        <div className="mt-3 bg-emerald-950/60 border border-emerald-800/40 rounded-xl p-3">
+          <p className="text-xs text-emerald-400 font-semibold uppercase tracking-wide mb-1">Next action</p>
+          <p className="text-sm text-slate-200 leading-relaxed"><Bold text={nextAction} /></p>
+        </div>
+      )}
     </div>
   )
 }

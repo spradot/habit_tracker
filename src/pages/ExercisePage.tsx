@@ -1,20 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, ChevronLeft, ChevronRight, Trophy, ChevronDown, ChevronUp, Pencil, Sparkles, RefreshCw, ClipboardList, BookOpen, CheckCircle2, Circle } from 'lucide-react'
-import { exerciseStore, workoutPlanStore, settingsStore, refreshTodayScore } from '../storage'
+import { Plus, Trash2, ChevronLeft, ChevronRight, Trophy, ChevronDown, ChevronUp, Pencil, Sparkles, RefreshCw, ClipboardList, BookOpen, CheckCircle2, Circle, Library } from 'lucide-react'
+import { exerciseStore, workoutPlanStore, settingsStore, refreshTodayScore, exerciseLibraryStore } from '../storage'
 import { today, uid, fmtDate, last7Days } from '../utils'
-import type { ExerciseEntry, ExerciseSet, WeeklyPlan, WorkoutTemplate } from '../types'
+import type { ExerciseEntry, ExerciseSet, WeeklyPlan, WorkoutTemplate, MuscleGroup, ExerciseLibraryEntry } from '../types'
 import { getWorkoutRecommendation, type WorkoutRecommendation } from '../gemini'
-import { DEFAULT_PLAN_TEMPLATES } from '../exerciseData'
+import { DEFAULT_PLAN_TEMPLATES, getMuscleGroups } from '../exerciseData'
 import Card from '../components/Card'
 
 const CATEGORIES = ['strength', 'cardio', 'mobility'] as const
-const PRESETS = ['Bench Press', 'Squat', 'Deadlift', 'OHP', 'Pull-up', 'Lat Pulldown', 'Row Machine', 'Overhead Press', 'Lateral Raise', 'Hammer Curl', 'Tricep Pushdown', 'Treadmill', 'Cycling']
+const PRESETS = ['Bench Press', 'Squat', 'Deadlift', 'OHP', 'Pull-up', 'Lat Pulldown', 'Row Machine', 'Overhead Press', 'Lateral Raise', 'Hammer Curl', 'Tricep Pushdown', 'Plank', 'Treadmill', 'Cycling']
+const MUSCLE_GROUPS: MuscleGroup[] = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'abs', 'quads', 'hamstrings', 'glutes', 'calves']
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export default function ExercisePage() {
-  const [view, setView] = useState<'log' | 'plan'>('log')
+  const [view, setView] = useState<'log' | 'plan' | 'library'>('log')
   const [date, setDate] = useState(today())
   const [entries, setEntries] = useState<ExerciseEntry[]>([])
   const [showForm, setShowForm] = useState(false)
@@ -33,12 +34,53 @@ export default function ExercisePage() {
 
   const [form, setForm] = useState({
     name: '', category: 'strength' as ExerciseEntry['category'],
+    muscleGroup: null as MuscleGroup | null,
     sets: [{ reps: 0, weight: 0, unit: 'kg' }] as ExerciseSet[],
-    durationMin: '', notes: '',
+    durationMin: '', notes: '', timeMode: false,
   })
+  const [nameSuggestions, setNameSuggestions] = useState<string[]>([])
+  const [allExerciseNames, setAllExerciseNames] = useState<string[]>([])
+
+  // Library tab state
+  const [libraryEntries, setLibraryEntries] = useState<ExerciseLibraryEntry[]>([])
+  const [libraryFilter, setLibraryFilter] = useState('')
+  const [libraryMuscleFilter, setLibraryMuscleFilter] = useState<MuscleGroup | null>(null)
+  const [showLibraryForm, setShowLibraryForm] = useState(false)
+  const [editingLibraryId, setEditingLibraryId] = useState<string | null>(null)
+  const [libraryForm, setLibraryForm] = useState({
+    name: '', category: 'strength' as ExerciseLibraryEntry['category'], muscleGroups: [] as MuscleGroup[],
+  })
+
+  const reloadLibrary = useCallback(() => {
+    setLibraryEntries(exerciseLibraryStore.getAll().sort((a, b) => a.name.localeCompare(b.name)))
+  }, [])
+
+  const loadAllNames = useCallback(() => {
+    const library = exerciseLibraryStore.getAll()
+    const seen = new Set<string>()
+    const names: string[] = []
+    for (const e of library) { if (!seen.has(e.name)) { seen.add(e.name); names.push(e.name) } }
+    // Past entries not in library (backward compat)
+    const past = exerciseStore.getAll()
+    for (let i = past.length - 1; i >= 0; i--) {
+      if (!seen.has(past[i].name)) { seen.add(past[i].name); names.push(past[i].name) }
+    }
+    setAllExerciseNames(names)
+  }, [])
+
+  const getExMuscleGroups = useCallback((name: string): MuscleGroup[] =>
+    exerciseLibraryStore.findByName(name)?.muscleGroups ?? getMuscleGroups(name)
+  , [])
+
+  const computeSuggestions = useCallback((query: string, mg: MuscleGroup | null, names: string[]) => {
+    const base = mg ? names.filter(n => getExMuscleGroups(n).includes(mg)) : names
+    return base.filter(n => query === '' || n.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+  }, [getExMuscleGroups])
 
   const reload = useCallback(() => setEntries(exerciseStore.forDate(date)), [date])
   useEffect(() => { reload() }, [reload])
+  useEffect(() => { loadAllNames() }, [loadAllNames])
+  useEffect(() => { if (view === 'library') reloadLibrary() }, [view, reloadLibrary])
 
   useEffect(() => {
     if (view === 'plan') {
@@ -81,7 +123,13 @@ export default function ExercisePage() {
     setDate(d.toISOString().slice(0, 10))
   }
 
-  const addSet = () => setForm(f => ({ ...f, sets: [...f.sets, { reps: 0, weight: 0, unit: 'kg' }] }))
+  const addSet = () => setForm(f => ({
+    ...f,
+    sets: [...f.sets, f.timeMode
+      ? { reps: 0, weight: 0, unit: 'kg' as const, durationSec: f.sets[f.sets.length - 1]?.durationSec ?? 60 }
+      : { reps: 0, weight: 0, unit: 'kg' as const }
+    ]
+  }))
   const removeSet = (i: number) => setForm(f => ({ ...f, sets: f.sets.filter((_, j) => j !== i) }))
   const updateSet = (i: number, field: keyof ExerciseSet, val: string | number) => {
     setForm(f => {
@@ -95,7 +143,7 @@ export default function ExercisePage() {
     if (!form.name) return
     const prevPR = form.category === 'strength' ? exerciseStore.getPR(form.name) : 0
     const maxWeight = Math.max(...form.sets.map(s => s.weight), 0)
-    const isPR = form.category === 'strength' && maxWeight > prevPR && maxWeight > 0
+    const isPR = form.category === 'strength' && !form.timeMode && maxWeight > prevPR && maxWeight > 0
 
     const entry: ExerciseEntry = {
       id: uid(), date, name: form.name,
@@ -107,11 +155,14 @@ export default function ExercisePage() {
     }
     exerciseStore.add(entry)
     reload()
+    refreshTodayScore()
+    loadAllNames()
     setShowForm(false)
-    setForm({ name: '', category: 'strength', sets: [{ reps: 0, weight: 0, unit: 'kg' }], durationMin: '', notes: '' })
+    setNameSuggestions([])
+    setForm({ name: '', category: 'strength', muscleGroup: null, sets: [{ reps: 0, weight: 0, unit: 'kg' }], durationMin: '', notes: '', timeMode: false })
   }
 
-  const remove = (id: string) => { exerciseStore.remove(id); reload() }
+  const remove = (id: string) => { exerciseStore.remove(id); reload(); refreshTodayScore() }
 
   const startEdit = (e: ExerciseEntry) => { setEditSets(e.sets.map(s => ({ ...s }))); setEditingId(e.id) }
   const cancelEdit = () => setEditingId(null)
@@ -125,10 +176,39 @@ export default function ExercisePage() {
   const saveEdit = (entry: ExerciseEntry) => {
     const prevPR = exerciseStore.getPR(entry.name)
     const maxWeight = Math.max(...editSets.map(s => s.weight), 0)
-    const isPR = entry.category === 'strength' && maxWeight > prevPR && maxWeight > 0
+    const isTimed = editSets[0]?.durationSec !== undefined
+    const isPR = entry.category === 'strength' && !isTimed && maxWeight > prevPR && maxWeight > 0
     exerciseStore.update({ ...entry, sets: editSets, pr: isPR })
     setEditingId(null)
     reload()
+    refreshTodayScore()
+  }
+
+  const saveLibraryEntry = () => {
+    const name = libraryForm.name.trim()
+    if (!name) return
+    if (editingLibraryId) {
+      exerciseLibraryStore.update({ id: editingLibraryId, name, category: libraryForm.category, muscleGroups: libraryForm.muscleGroups })
+    } else {
+      exerciseLibraryStore.add({ id: uid(), name, category: libraryForm.category, muscleGroups: libraryForm.muscleGroups })
+    }
+    reloadLibrary()
+    loadAllNames()
+    setShowLibraryForm(false)
+    setEditingLibraryId(null)
+    setLibraryForm({ name: '', category: 'strength', muscleGroups: [] })
+  }
+
+  const startEditLibrary = (entry: ExerciseLibraryEntry) => {
+    setLibraryForm({ name: entry.name, category: entry.category, muscleGroups: [...entry.muscleGroups] })
+    setEditingLibraryId(entry.id)
+    setShowLibraryForm(true)
+  }
+
+  const deleteLibraryEntry = (id: string) => {
+    exerciseLibraryStore.remove(id)
+    reloadLibrary()
+    loadAllNames()
   }
 
   const loadDefaultPlan = () => {
@@ -178,9 +258,11 @@ export default function ExercisePage() {
     setForm({
       name: first.name,
       category: 'strength',
+      muscleGroup: null,
       sets: Array.from({ length: first.sets }, () => ({ reps: first.reps, weight: 0, unit: 'kg' as const })),
       durationMin: '',
       notes: '',
+      timeMode: false,
     })
     setShowForm(true)
     setView('log')
@@ -203,6 +285,12 @@ export default function ExercisePage() {
           className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors ${view === 'plan' ? 'bg-slate-600 text-white' : 'text-slate-400'}`}
         >
           <BookOpen size={15} /> Plan
+        </button>
+        <button
+          onClick={() => setView('library')}
+          className={`flex-1 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors ${view === 'library' ? 'bg-slate-600 text-white' : 'text-slate-400'}`}
+        >
+          <Library size={15} /> Exercises
         </button>
       </div>
 
@@ -232,38 +320,101 @@ export default function ExercisePage() {
             <Card className="space-y-3">
               <div className="grid grid-cols-3 gap-1">
                 {CATEGORIES.map(c => (
-                  <button key={c} onClick={() => setForm(f => ({ ...f, category: c }))}
+                  <button key={c} onClick={() => setForm(f => ({ ...f, category: c, muscleGroup: null, name: '' }))}
                     className={`py-1.5 rounded-lg text-xs font-medium capitalize ${form.category === c ? 'bg-emerald-600' : 'bg-slate-700'}`}>
                     {c}
                   </button>
                 ))}
               </div>
 
-              <div>
+              {form.category !== 'cardio' && (
+                <div className="flex flex-wrap gap-1.5">
+                  {MUSCLE_GROUPS.map(mg => (
+                    <button
+                      key={mg}
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        const next = form.muscleGroup === mg ? null : mg
+                        setForm(f => ({ ...f, muscleGroup: next, name: '' }))
+                        setNameSuggestions(computeSuggestions('', next, allExerciseNames))
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-xs capitalize transition-colors ${
+                        form.muscleGroup === mg
+                          ? 'bg-emerald-700 text-emerald-200'
+                          : 'bg-slate-700 text-slate-400 active:bg-slate-600'
+                      }`}
+                    >
+                      {mg}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="relative">
                 <input
                   className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none"
-                  placeholder="Exercise name"
+                  placeholder={form.muscleGroup ? `${form.muscleGroup} exercise…` : 'Exercise name'}
                   value={form.name}
-                  list="presets"
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  onChange={e => {
+                    const v = e.target.value
+                    setForm(f => ({ ...f, name: v }))
+                    setNameSuggestions(computeSuggestions(v, form.muscleGroup, allExerciseNames))
+                  }}
+                  onFocus={() => setNameSuggestions(computeSuggestions(form.name, form.muscleGroup, allExerciseNames))}
+                  onBlur={() => setTimeout(() => setNameSuggestions([]), 100)}
                 />
-                <datalist id="presets">{PRESETS.map(p => <option key={p} value={p} />)}</datalist>
+                {nameSuggestions.length > 0 && (
+                  <ul className="absolute z-20 w-full mt-1 bg-slate-700 rounded-xl shadow-lg overflow-hidden border border-slate-600">
+                    {nameSuggestions.map(name => {
+                      const muscle = getMuscleGroups(name).filter(m => m !== 'other' && m !== 'cardio')[0]
+                      return (
+                        <li key={name}>
+                          <button
+                            className="w-full text-left px-3 py-2 text-sm flex items-center justify-between active:bg-slate-600"
+                            onMouseDown={e => { e.preventDefault(); setForm(f => ({ ...f, name })); setNameSuggestions([]) }}
+                          >
+                            <span>{name}</span>
+                            {muscle && !form.muscleGroup && <span className="text-xs text-slate-400 capitalize">{muscle}</span>}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
               </div>
 
               {form.category === 'cardio' ? (
                 <input className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none" placeholder="Duration (minutes)" type="number" value={form.durationMin} onChange={e => setForm(f => ({ ...f, durationMin: e.target.value }))} />
               ) : (
                 <div className="space-y-2">
-                  <p className="text-xs text-slate-400 font-medium">Sets</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-400 font-medium">Sets</p>
+                    <div className="flex gap-0.5 bg-slate-800 rounded-lg p-0.5">
+                      <button
+                        onClick={() => setForm(f => ({ ...f, timeMode: false, sets: f.sets.map(s => ({ reps: s.reps || 0, weight: s.weight || 0, unit: s.unit })) }))}
+                        className={`px-2 py-0.5 rounded text-xs ${!form.timeMode ? 'bg-slate-600 text-white' : 'text-slate-400'}`}
+                      >Reps</button>
+                      <button
+                        onClick={() => setForm(f => ({ ...f, timeMode: true, sets: f.sets.map(s => ({ reps: 0, weight: 0, unit: 'kg' as const, durationSec: s.durationSec ?? 60 })) }))}
+                        className={`px-2 py-0.5 rounded text-xs ${form.timeMode ? 'bg-slate-600 text-white' : 'text-slate-400'}`}
+                      >Time</button>
+                    </div>
+                  </div>
                   {form.sets.map((set, i) => (
                     <div key={i} className="flex gap-2 items-center">
                       <span className="text-xs text-slate-500 w-4">{i + 1}</span>
-                      <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1.5 text-sm outline-none" type="number" placeholder="Reps" value={set.reps || ''} onChange={e => updateSet(i, 'reps', e.target.value)} />
-                      <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1.5 text-sm outline-none" type="number" placeholder="Weight" value={set.weight || ''} onChange={e => updateSet(i, 'weight', e.target.value)} />
-                      <select className="bg-slate-700 rounded-lg px-1 py-1.5 text-sm outline-none" value={set.unit} onChange={e => updateSet(i, 'unit', e.target.value)}>
-                        <option value="kg">kg</option>
-                        <option value="lbs">lbs</option>
-                      </select>
+                      {form.timeMode ? (
+                        <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1.5 text-sm outline-none" type="number" placeholder="Seconds" value={set.durationSec || ''} onChange={e => updateSet(i, 'durationSec', e.target.value)} />
+                      ) : (
+                        <>
+                          <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1.5 text-sm outline-none" type="number" placeholder="Reps" value={set.reps || ''} onChange={e => updateSet(i, 'reps', e.target.value)} />
+                          <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1.5 text-sm outline-none" type="number" placeholder="Weight" value={set.weight || ''} onChange={e => updateSet(i, 'weight', e.target.value)} />
+                          <select className="bg-slate-700 rounded-lg px-1 py-1.5 text-sm outline-none" value={set.unit} onChange={e => updateSet(i, 'unit', e.target.value)}>
+                            <option value="kg">kg</option>
+                            <option value="lbs">lbs</option>
+                          </select>
+                        </>
+                      )}
                       {form.sets.length > 1 && <button onClick={() => removeSet(i)} className="text-slate-500"><Trash2 size={14} /></button>}
                     </div>
                   ))}
@@ -295,7 +446,13 @@ export default function ExercisePage() {
                       {expandedId === e.id ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {e.category === 'cardio' ? `${e.durationMin} min` : `${e.sets.length} sets · ${Math.max(...e.sets.map(s => s.weight))} ${e.sets[0]?.unit ?? 'kg'} max`}
+                      {(() => {
+                        const muscles = getExMuscleGroups(e.name).filter(m => m !== 'other' && m !== 'cardio')
+                        const tag = muscles[0] ? `${muscles[0]} · ` : ''
+                        if (e.category === 'cardio') return `${tag}${e.durationMin} min`
+                        if (e.sets[0]?.durationSec !== undefined) return `${tag}${e.sets.length} sets · ${Math.max(...e.sets.map(s => s.durationSec ?? 0))}s max`
+                        return `${tag}${e.sets.length} sets · ${Math.max(...e.sets.map(s => s.weight))} ${e.sets[0]?.unit ?? 'kg'} max`
+                      })()}
                     </p>
                   </button>
                   <button onClick={() => remove(e.id)} className="text-slate-500 active:text-rose-400 p-1 ml-2"><Trash2 size={16} /></button>
@@ -308,16 +465,28 @@ export default function ExercisePage() {
                         {editSets.map((s, i) => (
                           <div key={i} className="flex gap-2 items-center">
                             <span className="text-xs text-slate-500 w-9">Set {i + 1}</span>
-                            <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1 text-sm outline-none text-center" type="number" value={s.reps || ''} onChange={ev => updateEditSet(i, 'reps', ev.target.value)} />
-                            <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1 text-sm outline-none text-center" type="number" value={s.weight || ''} onChange={ev => updateEditSet(i, 'weight', ev.target.value)} />
-                            <select className="bg-slate-700 rounded-lg px-1 py-1 text-sm outline-none" value={s.unit} onChange={ev => updateEditSet(i, 'unit', ev.target.value)}>
-                              <option value="kg">kg</option>
-                              <option value="lbs">lbs</option>
-                            </select>
+                            {s.durationSec !== undefined ? (
+                              <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1 text-sm outline-none text-center" type="number" placeholder="Seconds" value={s.durationSec || ''} onChange={ev => updateEditSet(i, 'durationSec', ev.target.value)} />
+                            ) : (
+                              <>
+                                <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1 text-sm outline-none text-center" type="number" value={s.reps || ''} onChange={ev => updateEditSet(i, 'reps', ev.target.value)} />
+                                <input className="flex-1 bg-slate-700 rounded-lg px-2 py-1 text-sm outline-none text-center" type="number" value={s.weight || ''} onChange={ev => updateEditSet(i, 'weight', ev.target.value)} />
+                                <select className="bg-slate-700 rounded-lg px-1 py-1 text-sm outline-none" value={s.unit} onChange={ev => updateEditSet(i, 'unit', ev.target.value)}>
+                                  <option value="kg">kg</option>
+                                  <option value="lbs">lbs</option>
+                                </select>
+                              </>
+                            )}
                             {editSets.length > 1 && <button onClick={() => setEditSets(prev => prev.filter((_, j) => j !== i))} className="text-slate-500 active:text-rose-400"><Trash2 size={14} /></button>}
                           </div>
                         ))}
-                        <button onClick={() => setEditSets(prev => [...prev, { reps: 0, weight: prev[prev.length - 1]?.weight ?? 0, unit: prev[prev.length - 1]?.unit ?? 'kg' }])} className="text-xs text-emerald-400">+ Add set</button>
+                        <button onClick={() => setEditSets(prev => {
+                          const last = prev[prev.length - 1]
+                          return [...prev, last?.durationSec !== undefined
+                            ? { reps: 0, weight: 0, unit: 'kg' as const, durationSec: last.durationSec }
+                            : { reps: 0, weight: last?.weight ?? 0, unit: last?.unit ?? 'kg' }
+                          ]
+                        })} className="text-xs text-emerald-400">+ Add set</button>
                         <div className="flex gap-2 pt-1">
                           <button onClick={cancelEdit} className="flex-1 bg-slate-700 rounded-xl py-1.5 text-xs">Cancel</button>
                           <button onClick={() => saveEdit(e)} className="flex-1 bg-emerald-600 rounded-xl py-1.5 text-xs font-medium">Save</button>
@@ -328,9 +497,15 @@ export default function ExercisePage() {
                         {e.sets.map((s, i) => (
                           <div key={i} className="flex text-xs text-slate-300 gap-4">
                             <span className="text-slate-500">Set {i + 1}</span>
-                            <span>{s.reps} reps</span>
-                            <span>{s.weight} {s.unit}</span>
-                            <span className="text-slate-500">{Math.round(s.reps * s.weight)} vol</span>
+                            {s.durationSec !== undefined ? (
+                              <span>{s.durationSec}s</span>
+                            ) : (
+                              <>
+                                <span>{s.reps} reps</span>
+                                <span>{s.weight} {s.unit}</span>
+                                <span className="text-slate-500">{Math.round(s.reps * s.weight)} vol</span>
+                              </>
+                            )}
                           </div>
                         ))}
                         {e.notes && <p className="text-xs text-slate-400 mt-1 italic">{e.notes}</p>}
@@ -528,6 +703,120 @@ export default function ExercisePage() {
               </div>
             )}
           </Card>
+        </div>
+      )}
+
+      {/* ── LIBRARY VIEW ── */}
+      {view === 'library' && (
+        <div className="space-y-4">
+          {/* Search + add button */}
+          <div className="flex gap-2">
+            <input
+              className="flex-1 bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none"
+              placeholder="Search exercises…"
+              value={libraryFilter}
+              onChange={e => setLibraryFilter(e.target.value)}
+            />
+            <button
+              onClick={() => { setEditingLibraryId(null); setLibraryForm({ name: '', category: 'strength', muscleGroups: [] }); setShowLibraryForm(v => !v) }}
+              className="bg-emerald-600 px-3 py-2 rounded-xl"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+
+          {/* Muscle group filter */}
+          <div className="flex flex-wrap gap-1.5">
+            {MUSCLE_GROUPS.map(mg => (
+              <button
+                key={mg}
+                onClick={() => setLibraryMuscleFilter(f => f === mg ? null : mg)}
+                className={`px-2.5 py-1 rounded-full text-xs capitalize transition-colors ${
+                  libraryMuscleFilter === mg ? 'bg-emerald-700 text-emerald-200' : 'bg-slate-700 text-slate-400 active:bg-slate-600'
+                }`}
+              >
+                {mg}
+              </button>
+            ))}
+          </div>
+
+          {/* Add / Edit form */}
+          {showLibraryForm && (
+            <Card className="space-y-3">
+              <p className="text-sm font-medium">{editingLibraryId ? 'Edit Exercise' : 'New Exercise'}</p>
+              <input
+                className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none"
+                placeholder="Exercise name"
+                value={libraryForm.name}
+                onChange={e => setLibraryForm(f => ({ ...f, name: e.target.value }))}
+              />
+              <div className="grid grid-cols-3 gap-1">
+                {CATEGORIES.map(c => (
+                  <button key={c}
+                    onClick={() => setLibraryForm(f => ({ ...f, category: c }))}
+                    className={`py-1.5 rounded-lg text-xs font-medium capitalize ${libraryForm.category === c ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 font-medium">Muscle groups</p>
+              <div className="flex flex-wrap gap-1.5">
+                {MUSCLE_GROUPS.map(mg => (
+                  <button
+                    key={mg}
+                    onClick={() => setLibraryForm(f => ({
+                      ...f,
+                      muscleGroups: f.muscleGroups.includes(mg)
+                        ? f.muscleGroups.filter(m => m !== mg)
+                        : [...f.muscleGroups, mg],
+                    }))}
+                    className={`px-2.5 py-1 rounded-full text-xs capitalize transition-colors ${
+                      libraryForm.muscleGroups.includes(mg) ? 'bg-emerald-700 text-emerald-200' : 'bg-slate-700 text-slate-400'
+                    }`}
+                  >
+                    {mg}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setShowLibraryForm(false); setEditingLibraryId(null) }} className="flex-1 bg-slate-700 rounded-xl py-2 text-sm">Cancel</button>
+                <button onClick={saveLibraryEntry} className="flex-1 bg-emerald-600 rounded-xl py-2 text-sm font-medium">Save</button>
+              </div>
+            </Card>
+          )}
+
+          {/* Exercise list */}
+          <div className="space-y-1.5">
+            {(() => {
+              const filtered = libraryEntries.filter(e => {
+                if (libraryFilter && !e.name.toLowerCase().includes(libraryFilter.toLowerCase())) return false
+                if (libraryMuscleFilter && !e.muscleGroups.includes(libraryMuscleFilter)) return false
+                return true
+              })
+              if (filtered.length === 0) return (
+                <p className="text-center text-slate-500 py-8 text-sm">No exercises found</p>
+              )
+              return filtered.map(entry => (
+                <Card key={entry.id} className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{entry.name}</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {entry.muscleGroups.map(mg => (
+                        <span key={mg} className="text-xs bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full capitalize">{mg}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={() => startEditLibrary(entry)} className="text-slate-400 active:text-emerald-400 p-1 shrink-0">
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={() => deleteLibraryEntry(entry.id)} className="text-slate-500 active:text-rose-400 p-1 shrink-0">
+                    <Trash2 size={14} />
+                  </button>
+                </Card>
+              ))
+            })()}
+          </div>
         </div>
       )}
     </div>

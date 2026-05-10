@@ -15,6 +15,7 @@ export interface ExerciseSet {
   reps: number
   weight: number        // kg
   unit: 'kg' | 'lbs'
+  durationSec?: number  // for time-based sets (plank, holds)
 }
 
 export interface ExerciseEntry {
@@ -137,6 +138,13 @@ export interface BodyMeasurement {
   rightArmCm?: number
   hipsAndButtocksCm?: number
   notes?: string
+}
+
+export interface ExerciseLibraryEntry {
+  id: string
+  name: string
+  muscleGroups: MuscleGroup[]
+  category: 'strength' | 'cardio' | 'mobility'
 }
 
 export interface SleepEntry {

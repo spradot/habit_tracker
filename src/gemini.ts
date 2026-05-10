@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import type { FoodEntry, ExerciseEntry, WeightEntry, MuscleGroup, WorkoutTemplate, BodyMeasurement, SleepEntry } from './types'
+import { getMuscleGroups } from './exerciseData'
 
 const ENV_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY as string | undefined
 
@@ -187,11 +188,11 @@ export async function getRecompositionInsight(
 
   const totalCals = food.reduce((s, f) => s + f.calories, 0)
   const totalProtein = food.reduce((s, f) => s + f.protein, 0)
-  const days = food.length > 0 ? Math.max(new Set(food.map(f => f.date)).size, 1) : 7
   const latestWeight = weights.length ? weights[weights.length - 1].weight : null
   const startWeight = weights.length ? weights[0].weight : null
   const kgLost = startWeight && latestWeight ? Math.round((startWeight - latestWeight) * 10) / 10 : 0
   const kgToGo = latestWeight ? Math.round((latestWeight - goalWeightKg) * 10) / 10 : null
+  const proteinTarget = latestWeight ? Math.round(latestWeight * 1.8) : 140
 
   const firstM = measurements.length ? measurements[0] : null
   const lastM = measurements.length ? measurements[measurements.length - 1] : null
@@ -205,16 +206,20 @@ export async function getRecompositionInsight(
       .reduce((a, b) => a + b, 0) / sleep.length * 10
   ) / 10 : null
 
+  const trainingDays = new Set(exercises.map(e => e.date)).size
+  const coveredMuscles = [...new Set(exercises.flatMap(e => getMuscleGroups(e.name)))]
+    .filter(m => m !== 'other')
+
   const prompt = `You are a body recomposition coach. Give 4 bullet insights and 1 concrete next action. Max 150 words. Be direct and specific.
 
 Goal: ${recompNote || 'reach 80kg, reduce belly fat, gynecomastia appearance'}
-Target weight: ${goalWeightKg} kg
+Target weight: ${goalWeightKg} kg | Protein target: ${proteinTarget}g/day (1.8g/kg body weight)
 
 Data:
 - Current weight: ${latestWeight ?? 'unknown'} kg | Lost: ${kgLost} kg | Remaining: ${kgToGo ?? '?'} kg
-- Avg daily calories: ${Math.round(totalCals / days)} kcal (goal: ${goalCalories})
-- Avg daily protein: ${Math.round(totalProtein / days)}g
-- Exercise sessions (7d): ${exercises.length} — ${[...new Set(exercises.map(e => e.name))].slice(0, 5).join(', ') || 'none'}
+- Avg daily calories: ${Math.round(totalCals / 7)} kcal (goal: ${goalCalories})
+- Avg daily protein: ${Math.round(totalProtein / 7)}g (target: ${proteinTarget}g)
+- Training days (7d): ${trainingDays} | Muscle groups covered: ${coveredMuscles.join(', ') || 'none logged'}
 - Waist change: ${waistDelta !== null ? `${waistDelta > 0 ? '+' : ''}${waistDelta} cm` : 'not measured'}
 - Belly change: ${bellyDelta !== null ? `${bellyDelta > 0 ? '+' : ''}${bellyDelta} cm` : 'not measured'}
 - Avg sleep: ${avgSleep ?? 'not tracked'} hours

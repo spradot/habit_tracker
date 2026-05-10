@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Search, Plus, Trash2, ChevronLeft, ChevronRight, Sparkles, Loader, Check, AlertCircle } from 'lucide-react'
-import { foodStore, settingsStore } from '../storage'
+import { foodStore, settingsStore, refreshTodayScore } from '../storage'
 import { searchFood } from '../foodApi'
 import { analyzeMealText } from '../gemini'
 import type { MealAnalysis } from '../gemini'
@@ -60,6 +60,7 @@ export default function CaloriesPage() {
     }
     foodStore.add(entry)
     reload()
+    refreshTodayScore()
     setResults([])
     setQuery('')
     if (settings.notificationsEnabled) checkCalorieAlert(totalCals + r.calories, goal, settings.calorieAlertPercent)
@@ -78,6 +79,7 @@ export default function CaloriesPage() {
     }
     foodStore.add(entry)
     reload()
+    refreshTodayScore()
     setShowAdd(false)
     setCustom({ name: '', calories: '', protein: '', carbs: '', fat: '', serving: '100' })
   }
@@ -110,13 +112,14 @@ export default function CaloriesPage() {
     }
     foodStore.add(entry)
     reload()
+    refreshTodayScore()
     if (settings.notificationsEnabled) checkCalorieAlert(totalCals + aiResult.calories, goal, settings.calorieAlertPercent)
     setMealText('')
     setAiResult(null)
     setAiState('idle')
   }
 
-  const remove = (id: string) => { foodStore.remove(id); reload() }
+  const remove = (id: string) => { foodStore.remove(id); reload(); refreshTodayScore() }
 
   return (
     <div className="p-4 space-y-4">

@@ -1,8 +1,10 @@
 import type {
   FoodEntry, ExerciseEntry, WeightEntry, StepsEntry, Settings, FoodCacheEntry,
   WeeklyPlan, WorkoutTemplate, BodyMeasurement, SleepEntry, DayScore, Badge, BadgeId, RewardState,
+  ExerciseLibraryEntry,
 } from './types'
-import { today, last7Days } from './utils'
+import { today, last7Days, uid } from './utils'
+import { getMuscleGroups, EXERCISE_MUSCLE_MAP } from './exerciseData'
 import { supabase } from './supabase'
 
 const KEYS = {
@@ -16,6 +18,7 @@ const KEYS = {
   bodyMeasurements: 'ht_body_measurements',
   sleep: 'ht_sleep',
   dayScores: 'ht_day_scores',
+  exerciseLibrary: 'ht_exercises_library',
 }
 
 function load<T>(key: string, fallback: T): T {
@@ -81,6 +84,7 @@ export const exerciseStore = {
       category: entry.category, sets: entry.sets,
       duration_min: entry.durationMin ?? null,
       notes: entry.notes ?? null, pr: entry.pr ?? false,
+      muscle_groups: getMuscleGroups(entry.name),
     }).then(({ error }) => { if (error) console.warn('Supabase exercise insert:', error.message) })
   },
 
@@ -95,6 +99,7 @@ export const exerciseStore = {
     supabase?.from('exercise_entries').update({
       sets: entry.sets, duration_min: entry.durationMin ?? null,
       notes: entry.notes ?? null, pr: entry.pr ?? false,
+      muscle_groups: getMuscleGroups(entry.name),
     }).eq('id', entry.id)
       .then(({ error }) => { if (error) console.warn('Supabase exercise update:', error.message) })
   },
@@ -196,6 +201,67 @@ export const stepsStore = {
   },
 }
 
+// ── Exercise Library ──────────────────────────────────────────────────────────
+export const exerciseLibraryStore = {
+  getAll: () => load<ExerciseLibraryEntry[]>(KEYS.exerciseLibrary, []),
+  save: (entries: ExerciseLibraryEntry[]) => save(KEYS.exerciseLibrary, entries),
+
+  findByName: (name: string): ExerciseLibraryEntry | undefined => {
+    const lower = name.toLowerCase()
+    return exerciseLibraryStore.getAll().find(e => e.name.toLowerCase() === lower)
+  },
+
+  add: (entry: ExerciseLibraryEntry) => {
+    exerciseLibraryStore.save([...exerciseLibraryStore.getAll(), entry])
+    supabase?.from('exercises').insert({
+      id: entry.id, name: entry.name,
+      muscle_groups: entry.muscleGroups, category: entry.category,
+    }).then(({ error }) => { if (error) console.warn('Supabase exercises insert:', error.message) })
+  },
+
+  update: (entry: ExerciseLibraryEntry) => {
+    exerciseLibraryStore.save(exerciseLibraryStore.getAll().map(e => e.id === entry.id ? entry : e))
+    supabase?.from('exercises').update({
+      name: entry.name, muscle_groups: entry.muscleGroups, category: entry.category,
+    }).eq('id', entry.id)
+      .then(({ error }) => { if (error) console.warn('Supabase exercises update:', error.message) })
+  },
+
+  remove: (id: string) => {
+    exerciseLibraryStore.save(exerciseLibraryStore.getAll().filter(e => e.id !== id))
+    supabase?.from('exercises').delete().eq('id', id)
+      .then(({ error }) => { if (error) console.warn('Supabase exercises delete:', error.message) })
+  },
+
+  seedIfEmpty: () => {
+    if (exerciseLibraryStore.getAll().length > 0) return
+    const entries: ExerciseLibraryEntry[] = Object.entries(EXERCISE_MUSCLE_MAP).map(([name, muscleGroups]) => ({
+      id: uid(),
+      name,
+      muscleGroups,
+      category: (muscleGroups.includes('cardio') ? 'cardio' : 'strength') as ExerciseLibraryEntry['category'],
+    }))
+    exerciseLibraryStore.save(entries)
+    if (supabase) {
+      supabase.from('exercises').upsert(
+        entries.map(e => ({ id: e.id, name: e.name, muscle_groups: e.muscleGroups, category: e.category }))
+      ).then(({ error }) => { if (error) console.warn('Supabase exercises seed:', error.message) })
+    }
+  },
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('exercises').select('*').order('name')
+    if (error || !data || data.length === 0) return
+    const entries: ExerciseLibraryEntry[] = data.map(r => ({
+      id: r.id, name: r.name,
+      muscleGroups: r.muscle_groups ?? [],
+      category: r.category ?? 'strength',
+    }))
+    save(KEYS.exerciseLibrary, entries)
+  },
+}
+
 // ── Sync all on app start ─────────────────────────────────────────────────────
 export async function syncAllFromRemote() {
   await Promise.all([
@@ -203,6 +269,11 @@ export async function syncAllFromRemote() {
     exerciseStore.syncFromRemote(),
     weightStore.syncFromRemote(),
     stepsStore.syncFromRemote(),
+    workoutPlanStore.syncFromRemote(),
+    bodyMeasurementStore.syncFromRemote(),
+    sleepStore.syncFromRemote(),
+    dayScoreStore.syncFromRemote(),
+    exerciseLibraryStore.syncFromRemote(),
   ])
 }
 
@@ -233,16 +304,31 @@ export const workoutPlanStore = {
       plan.active ? { ...p, active: false } : p
     )
     workoutPlanStore.save([...all, plan])
+    if (plan.active) {
+      supabase?.from('workout_plans').update({ active: false }).neq('id', plan.id)
+        .then(({ error }) => { if (error) console.warn('Supabase plan deactivate:', error.message) })
+    }
+    supabase?.from('workout_plans').insert({
+      id: plan.id, name: plan.name, schedule: plan.schedule,
+      templates: plan.templates, floating: plan.floating, active: plan.active,
+    }).then(({ error }) => { if (error) console.warn('Supabase plan insert:', error.message) })
   },
 
   setActive: (id: string) => {
     workoutPlanStore.save(
       workoutPlanStore.getAll().map(p => ({ ...p, active: p.id === id }))
     )
+    supabase?.from('workout_plans').update({ active: false }).neq('id', id)
+      .then(({ error }) => { if (error) console.warn('Supabase plan deactivate:', error.message) })
+    supabase?.from('workout_plans').update({ active: true }).eq('id', id)
+      .then(({ error }) => { if (error) console.warn('Supabase plan activate:', error.message) })
   },
 
-  remove: (id: string) =>
-    workoutPlanStore.save(workoutPlanStore.getAll().filter(p => p.id !== id)),
+  remove: (id: string) => {
+    workoutPlanStore.save(workoutPlanStore.getAll().filter(p => p.id !== id))
+    supabase?.from('workout_plans').delete().eq('id', id)
+      .then(({ error }) => { if (error) console.warn('Supabase plan delete:', error.message) })
+  },
 
   getTemplateForDay: (dow: number): WorkoutTemplate | null => {
     const plan = workoutPlanStore.getActive()
@@ -251,7 +337,6 @@ export const workoutPlanStore = {
     return plan.templates.find(t => t.id === templateId) ?? null
   },
 
-  // For floating plans: find which template best matches today's logged exercises
   matchTemplate: (exerciseNames: string[]): WorkoutTemplate | null => {
     const plan = workoutPlanStore.getActive()
     if (!plan) return null
@@ -265,16 +350,45 @@ export const workoutPlanStore = {
     }
     return bestScore >= 2 ? best : null
   },
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('workout_plans').select('*')
+    if (error || !data) return
+    const plans: WeeklyPlan[] = data.map(r => ({
+      id: r.id, name: r.name, schedule: r.schedule,
+      templates: r.templates, floating: r.floating, active: r.active,
+      createdAt: r.created_at,
+    }))
+    save(KEYS.workoutPlans, plans)
+  },
 }
 
 // ── Body Measurements ─────────────────────────────────────────────────────────
 export const bodyMeasurementStore = {
   getAll: () => load<BodyMeasurement[]>(KEYS.bodyMeasurements, []),
   save: (entries: BodyMeasurement[]) => save(KEYS.bodyMeasurements, entries),
-  add: (e: BodyMeasurement) =>
-    bodyMeasurementStore.save([...bodyMeasurementStore.getAll(), e]),
-  remove: (id: string) =>
-    bodyMeasurementStore.save(bodyMeasurementStore.getAll().filter(e => e.id !== id)),
+
+  add: (e: BodyMeasurement) => {
+    bodyMeasurementStore.save([...bodyMeasurementStore.getAll(), e])
+    supabase?.from('body_measurements').insert({
+      id: e.id, date: e.date,
+      waist_cm: e.waistCm ?? null,
+      belly_cm: e.bellyCm ?? null,
+      chest_cm: e.chestCm ?? null,
+      left_arm_cm: e.leftArmCm ?? null,
+      right_arm_cm: e.rightArmCm ?? null,
+      hips_and_buttocks_cm: e.hipsAndButtocksCm ?? null,
+      notes: e.notes ?? null,
+    }).then(({ error }) => { if (error) console.warn('Supabase measurement insert:', error.message) })
+  },
+
+  remove: (id: string) => {
+    bodyMeasurementStore.save(bodyMeasurementStore.getAll().filter(e => e.id !== id))
+    supabase?.from('body_measurements').delete().eq('id', id)
+      .then(({ error }) => { if (error) console.warn('Supabase measurement delete:', error.message) })
+  },
+
   latest: (): BodyMeasurement | null => {
     const all = bodyMeasurementStore.getAll().sort((a, b) => a.date.localeCompare(b.date))
     return all.at(-1) ?? null
@@ -282,6 +396,23 @@ export const bodyMeasurementStore = {
   first: (): BodyMeasurement | null => {
     const all = bodyMeasurementStore.getAll().sort((a, b) => a.date.localeCompare(b.date))
     return all[0] ?? null
+  },
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('body_measurements').select('*').order('date')
+    if (error || !data) return
+    const entries: BodyMeasurement[] = data.map(r => ({
+      id: r.id, date: r.date,
+      waistCm: r.waist_cm ?? undefined,
+      bellyCm: r.belly_cm ?? undefined,
+      chestCm: r.chest_cm ?? undefined,
+      leftArmCm: r.left_arm_cm ?? undefined,
+      rightArmCm: r.right_arm_cm ?? undefined,
+      hipsAndButtocksCm: r.hips_and_buttocks_cm ?? undefined,
+      notes: r.notes ?? undefined,
+    }))
+    save(KEYS.bodyMeasurements, entries)
   },
 }
 
@@ -291,12 +422,26 @@ export const sleepStore = {
   save: (entries: SleepEntry[]) => save(KEYS.sleep, entries),
   forDate: (date: string): SleepEntry | null =>
     sleepStore.getAll().find(e => e.date === date) ?? null,
+
   set: (entry: SleepEntry) => {
     const all = sleepStore.getAll().filter(e => e.date !== entry.date)
     sleepStore.save([...all, entry])
+    supabase?.from('sleep_entries').upsert({
+      id: entry.id, date: entry.date,
+      bedtime_iso: entry.bedtimeISO,
+      wake_iso: entry.wakeISO,
+      quality_score: entry.qualityScore ?? null,
+      notes: entry.notes ?? null,
+    }).then(({ error }) => { if (error) console.warn('Supabase sleep upsert:', error.message) })
   },
-  remove: (date: string) =>
-    sleepStore.save(sleepStore.getAll().filter(e => e.date !== date)),
+
+  remove: (date: string) => {
+    const entry = sleepStore.forDate(date)
+    sleepStore.save(sleepStore.getAll().filter(e => e.date !== date))
+    if (entry) supabase?.from('sleep_entries').delete().eq('id', entry.id)
+      .then(({ error }) => { if (error) console.warn('Supabase sleep delete:', error.message) })
+  },
+
   avgDurationHours: (dates: string[]): number => {
     const entries = sleepStore.getAll().filter(e => dates.includes(e.date))
     if (!entries.length) return 0
@@ -304,6 +449,20 @@ export const sleepStore = {
       (new Date(e.wakeISO).getTime() - new Date(e.bedtimeISO).getTime()) / 3_600_000
     )
     return Math.round((durations.reduce((s, d) => s + d, 0) / durations.length) * 10) / 10
+  },
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('sleep_entries').select('*').order('date')
+    if (error || !data) return
+    const entries: SleepEntry[] = data.map(r => ({
+      id: r.id, date: r.date,
+      bedtimeISO: r.bedtime_iso,
+      wakeISO: r.wake_iso,
+      qualityScore: r.quality_score ?? undefined,
+      notes: r.notes ?? undefined,
+    }))
+    save(KEYS.sleep, entries)
   },
 }
 
@@ -412,12 +571,44 @@ function _computeBadges(
 export const dayScoreStore = {
   getAll: () => load<DayScore[]>(KEYS.dayScores, []),
   save: (scores: DayScore[]) => save(KEYS.dayScores, scores),
+
   upsert: (score: DayScore) => {
     const all = dayScoreStore.getAll().filter(s => s.date !== score.date)
     dayScoreStore.save([...all, score])
+    supabase?.from('day_scores').upsert({
+      date: score.date,
+      points: score.points,
+      steps_points: score.breakdown.stepsPoints,
+      exercise_points: score.breakdown.exercisePoints,
+      calorie_points: score.breakdown.caloriePoints,
+      pr_points: score.breakdown.prPoints,
+      plan_compliance_points: score.breakdown.planCompliancePoints,
+      streak_bonus: score.breakdown.streakBonus,
+      updated_at: new Date().toISOString(),
+    }).then(({ error }) => { if (error) console.warn('Supabase day_scores upsert:', error.message) })
   },
+
   forDate: (date: string): DayScore | null =>
     dayScoreStore.getAll().find(s => s.date === date) ?? null,
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('day_scores').select('*').order('date')
+    if (error || !data) return
+    const scores: DayScore[] = data.map(r => ({
+      date: r.date,
+      points: r.points,
+      breakdown: {
+        stepsPoints: r.steps_points,
+        exercisePoints: r.exercise_points,
+        caloriePoints: r.calorie_points,
+        prPoints: r.pr_points,
+        planCompliancePoints: r.plan_compliance_points,
+        streakBonus: r.streak_bonus,
+      },
+    }))
+    save(KEYS.dayScores, scores)
+  },
 
   computeRewardState: (): RewardState => {
     const scores = dayScoreStore.getAll().sort((a, b) => a.date.localeCompare(b.date))
@@ -445,6 +636,70 @@ export const dayScoreStore = {
       badges: _computeBadges(scores, exercises, measurements, weights),
     }
   },
+}
+
+export function backfillScores() {
+  const settings = load<Settings>(KEYS.settings, { goals: { calories: 1800, protein: 120, waterGlasses: 8, steps: 8000 }, weightUnit: 'kg', deepseekApiKey: '', notificationsEnabled: false, calorieAlertPercent: 80 })
+  const allFood      = load<FoodEntry[]>(KEYS.food, [])
+  const allExercise  = load<ExerciseEntry[]>(KEYS.exercise, [])
+  const allSteps     = load<StepsEntry[]>(KEYS.steps, [])
+
+  // Collect every date that has any activity
+  const dateSet = new Set<string>([
+    ...allFood.map(e => e.date),
+    ...allExercise.map(e => e.date),
+    ...allSteps.map(e => e.date),
+  ])
+  if (dateSet.size === 0) return
+
+  const dates = [...dateSet].sort()
+  const plan = workoutPlanStore.getActive()
+
+  // Walk chronologically, tracking the running streak going into each day
+  let runningStreak = 0
+  const newScores: DayScore[] = []
+
+  for (const date of dates) {
+    const exercises = allExercise.filter(e => e.date === date)
+    const steps     = allSteps.find(e => e.date === date) ?? null
+    const foods     = allFood.filter(e => e.date === date)
+    const cals      = foods.reduce((s, f) => s + f.calories, 0)
+
+    let template: WorkoutTemplate | null = null
+    if (plan) {
+      if (plan.floating) {
+        template = workoutPlanStore.matchTemplate(exercises.map(e => e.name))
+      } else {
+        const dow = new Date(date + 'T12:00:00').getDay()
+        template = workoutPlanStore.getTemplateForDay(dow)
+      }
+    }
+
+    const score = computeDayScore(date, steps, settings.goals.steps, exercises, cals, settings.goals.calories, template, runningStreak)
+    newScores.push(score)
+    runningStreak = score.points > 0 ? runningStreak + 1 : 0
+  }
+
+  // Merge with existing scores (keep any dates not in our activity set)
+  const existing = load<DayScore[]>(KEYS.dayScores, []).filter(s => !dateSet.has(s.date))
+  save(KEYS.dayScores, [...existing, ...newScores])
+
+  // Batch upsert to Supabase
+  if (supabase && newScores.length > 0) {
+    supabase.from('day_scores').upsert(
+      newScores.map(s => ({
+        date: s.date,
+        points: s.points,
+        steps_points: s.breakdown.stepsPoints,
+        exercise_points: s.breakdown.exercisePoints,
+        calorie_points: s.breakdown.caloriePoints,
+        pr_points: s.breakdown.prPoints,
+        plan_compliance_points: s.breakdown.planCompliancePoints,
+        streak_bonus: s.breakdown.streakBonus,
+        updated_at: new Date().toISOString(),
+      }))
+    ).then(({ error }) => { if (error) console.warn('Supabase backfill upsert:', error.message) })
+  }
 }
 
 export function refreshTodayScore() {

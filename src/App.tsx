@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { LayoutDashboard, Utensils, Dumbbell, Scale, Footprints, Settings, Activity } from 'lucide-react'
+import { syncAllFromRemote, backfillScores, exerciseLibraryStore } from './storage'
 import Dashboard from './pages/Dashboard'
 import CaloriesPage from './pages/CaloriesPage'
 import ExercisePage from './pages/ExercisePage'
@@ -21,6 +22,15 @@ const NAV_TABS: { id: Tab; label: string; Icon: typeof LayoutDashboard }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
+
+  useEffect(() => {
+    exerciseLibraryStore.seedIfEmpty()
+    backfillScores()
+    syncAllFromRemote().then(() => {
+      exerciseLibraryStore.seedIfEmpty()
+      backfillScores()
+    })
+  }, [])
 
   return (
     <div className="flex flex-col h-full max-w-lg mx-auto">
