@@ -147,6 +147,32 @@ export default function SettingsPage() {
         </button>
       </Card>
 
+      {/* Recomposition Goal */}
+      <Card className="space-y-3">
+        <div>
+          <p className="text-sm font-medium">Body Recomposition Goal</p>
+          <p className="text-xs text-slate-400 mt-0.5">Used for AI coaching and progress tracking</p>
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 block mb-1">Goal weight (kg)</label>
+          <input
+            className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none"
+            type="number" step="0.5" placeholder="80"
+            value={settings.goalWeightKg ?? ''}
+            onChange={e => update({ goalWeightKg: e.target.value ? Number(e.target.value) : undefined })}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 block mb-1">Recomp note (context for AI)</label>
+          <textarea
+            className="w-full bg-slate-700 rounded-xl px-3 py-2 text-sm outline-none resize-none"
+            rows={2} placeholder="e.g. Reduce belly fat and gynecomastia appearance, gain muscle"
+            value={settings.recompNote ?? ''}
+            onChange={e => update({ recompNote: e.target.value || undefined })}
+          />
+        </div>
+      </Card>
+
       {/* DeepSeek API */}
       <Card className="space-y-3">
         <p className="text-sm font-medium">DeepSeek AI</p>

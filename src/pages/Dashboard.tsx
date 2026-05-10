@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react'
-import { Dumbbell, Utensils, Scale, Sparkles, Loader, Footprints } from 'lucide-react'
-import { foodStore, exerciseStore, weightStore, stepsStore, settingsStore } from '../storage'
+import { Dumbbell, Utensils, Scale, Sparkles, Loader, Footprints, Activity, Flame } from 'lucide-react'
+import { foodStore, exerciseStore, weightStore, stepsStore, settingsStore, dayScoreStore, bodyMeasurementStore } from '../storage'
 import { getWeightLossInsight } from '../gemini'
 import { today, last7Days, kgToLbs } from '../utils'
 import Card from '../components/Card'
 import RingProgress from '../components/RingProgress'
 import TDEECard from '../components/TDEECard'
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, CartesianGrid } from 'recharts'
-
-type Tab = 'dashboard' | 'calories' | 'exercise' | 'weight' | 'steps' | 'settings'
+import type { Tab } from '../App'
 
 interface Props {
   onNavigate: (tab: Tab) => void
 }
+
 
 export default function Dashboard({ onNavigate }: Props) {
   const settings = settingsStore.get()
@@ -149,6 +149,67 @@ export default function Dashboard({ onNavigate }: Props) {
           <p className="text-xs text-slate-400">deficit/day</p>
         </div>
       </Card>
+
+      {/* Body Hub mini-card */}
+      {(() => {
+        const goalWeight = settings.goalWeightKg ?? 80
+        const kgToGo = currentWeight ? Math.round((currentWeight.weight - goalWeight) * 10) / 10 : null
+        const rewardState = dayScoreStore.computeRewardState()
+        const todayScore = dayScoreStore.forDate(today())
+        const latestM = bodyMeasurementStore.latest()
+        if (!currentWeight && !latestM && rewardState.totalPoints === 0) return null
+        return (
+          <Card onClick={() => onNavigate('body')} className="cursor-pointer active:bg-slate-700 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Activity size={15} className="text-emerald-400" />
+                Body Hub
+              </div>
+              <span className="text-xs text-slate-500">tap to open →</span>
+            </div>
+            <div className="flex gap-3 items-center">
+              {currentWeight && kgToGo !== null && (
+                <div className="flex-1">
+                  <div className="flex justify-between text-xs text-slate-400 mb-1">
+                    <span>{currentWeight.weight} kg</span>
+                    <span>Goal: {goalWeight} kg</span>
+                  </div>
+                  <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full transition-all"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, kgToGo <= 0 ? 100 : ((allWeights[0]?.weight ?? currentWeight.weight) - currentWeight.weight) / Math.max(0.1, (allWeights[0]?.weight ?? currentWeight.weight) - goalWeight) * 100))}%`
+                      }}
+                    />
+                  </div>
+                  {kgToGo > 0 && <p className="text-xs text-slate-400 mt-1">{kgToGo} kg to goal</p>}
+                  {kgToGo <= 0 && <p className="text-xs text-emerald-400 mt-1">Goal reached!</p>}
+                </div>
+              )}
+              <div className="flex gap-3 text-center">
+                {todayScore && (
+                  <div>
+                    <p className="text-base font-bold text-emerald-400">{todayScore.points}</p>
+                    <p className="text-xs text-slate-500">pts today</p>
+                  </div>
+                )}
+                {rewardState.currentStreak > 0 && (
+                  <div>
+                    <p className="text-base font-bold text-amber-400 flex items-center gap-0.5">{rewardState.currentStreak}<Flame size={13} /></p>
+                    <p className="text-xs text-slate-500">streak</p>
+                  </div>
+                )}
+                {latestM?.bellyCm && (
+                  <div>
+                    <p className="text-base font-bold">{latestM.bellyCm}</p>
+                    <p className="text-xs text-slate-500">belly cm</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+        )
+      })()}
 
       {/* Quick-log shortcuts */}
       <div className="flex gap-2">

@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { LayoutDashboard, Utensils, Dumbbell, Scale, Footprints, Settings } from 'lucide-react'
+import { LayoutDashboard, Utensils, Dumbbell, Scale, Footprints, Settings, Activity } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import CaloriesPage from './pages/CaloriesPage'
 import ExercisePage from './pages/ExercisePage'
 import WeightPage from './pages/WeightPage'
 import StepsPage from './pages/StepsPage'
 import SettingsPage from './pages/SettingsPage'
+import BodyHubPage from './pages/BodyHubPage'
 
-export type Tab = 'dashboard' | 'calories' | 'exercise' | 'weight' | 'steps' | 'settings'
+export type Tab = 'dashboard' | 'calories' | 'exercise' | 'weight' | 'steps' | 'body' | 'settings'
 
 const NAV_TABS: { id: Tab; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Home',     Icon: LayoutDashboard },
@@ -15,6 +16,7 @@ const NAV_TABS: { id: Tab; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'exercise',  label: 'Exercise', Icon: Dumbbell },
   { id: 'weight',    label: 'Weight',   Icon: Scale },
   { id: 'steps',     label: 'Steps',    Icon: Footprints },
+  { id: 'body',      label: 'Body',     Icon: Activity },
 ]
 
 export default function App() {
@@ -28,6 +30,7 @@ export default function App() {
         {tab === 'exercise'  && <ExercisePage />}
         {tab === 'weight'    && <WeightPage />}
         {tab === 'steps'     && <StepsPage />}
+        {tab === 'body'      && <BodyHubPage />}
         {tab === 'settings'  && <SettingsPage />}
       </main>
 

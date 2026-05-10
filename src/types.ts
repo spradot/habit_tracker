@@ -64,6 +64,88 @@ export interface Settings {
   notificationsEnabled: boolean
   calorieAlertPercent: number
   personal?: PersonalStats
+  goalWeightKg?: number
+  recompNote?: string
+}
+
+export type MuscleGroup =
+  | 'chest' | 'back' | 'shoulders' | 'biceps' | 'triceps'
+  | 'abs' | 'quads' | 'hamstrings' | 'glutes' | 'calves' | 'cardio' | 'other'
+
+export interface PlannedExercise {
+  name: string
+  muscleGroups: MuscleGroup[]
+  targetSets: number
+  targetReps: number
+  targetWeightKg?: number
+  isCore?: boolean        // core exercises count for full compliance; optional = bonus only
+  notes?: string
+}
+
+export interface WorkoutTemplate {
+  id: string
+  name: string
+  exercises: PlannedExercise[]
+  isRest: boolean
+}
+
+export interface WeeklyPlan {
+  id: string
+  name: string
+  schedule: Record<number, string>   // 0=Sun..6=Sat -> WorkoutTemplate.id (empty = floating)
+  templates: WorkoutTemplate[]
+  floating: boolean                  // true = no fixed day assignments, match by exercise overlap
+  createdAt: string
+  active: boolean
+}
+
+export interface DayScore {
+  date: string
+  points: number
+  breakdown: {
+    stepsPoints: number
+    exercisePoints: number
+    caloriePoints: number
+    prPoints: number
+    planCompliancePoints: number
+    streakBonus: number
+  }
+}
+
+export type BadgeId =
+  | 'first_workout' | 'first_pr' | 'week_warrior'
+  | 'calorie_sniper' | 'step_master' | 'recomp_start' | 'minus_5kg'
+
+export interface Badge { id: BadgeId; earnedAt: string }
+
+export interface RewardState {
+  totalPoints: number
+  weekPoints: number
+  currentStreak: number
+  longestStreak: number
+  level: number
+  badges: Badge[]
+}
+
+export interface BodyMeasurement {
+  id: string
+  date: string
+  waistCm?: number
+  bellyCm?: number
+  chestCm?: number
+  leftArmCm?: number
+  rightArmCm?: number
+  hipsAndButtocksCm?: number
+  notes?: string
+}
+
+export interface SleepEntry {
+  id: string
+  date: string           // wake-up date
+  bedtimeISO: string
+  wakeISO: string
+  qualityScore?: 1 | 2 | 3 | 4 | 5
+  notes?: string
 }
 
 export interface FoodCacheEntry {
