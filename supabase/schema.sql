@@ -154,3 +154,17 @@ alter table exercise_entries
 
 -- Also updates the sets comment to reflect the durationSec? field added for timed sets
 -- (no structural change needed — sets is jsonb and already accepts the new field)
+
+-- ── Habits (checklist diario) ────────────────────────────────────────────────
+-- Habit definitions live in localStorage for now; only daily logs are synced.
+create table if not exists habit_logs (
+  id         text        primary key,           -- `${habit_id}_${date}`
+  habit_id   text        not null,
+  date       text        not null,              -- YYYY-MM-DD
+  value      real        not null default 0,    -- 1 for checks, reps, or minutes
+  created_at timestamptz          default now()
+);
+create index if not exists habit_logs_date_idx on habit_logs (date);
+alter table habit_logs enable row level security;
+drop policy if exists "allow all" on habit_logs;
+create policy "allow all" on habit_logs for all using (true) with check (true);

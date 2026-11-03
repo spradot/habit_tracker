@@ -1,7 +1,7 @@
 import type {
   FoodEntry, ExerciseEntry, WeightEntry, StepsEntry, Settings, FoodCacheEntry,
   WeeklyPlan, WorkoutTemplate, BodyMeasurement, SleepEntry, DayScore, Badge, BadgeId, RewardState,
-  ExerciseLibraryEntry,
+  ExerciseLibraryEntry, HabitDef, HabitLog,
 } from './types'
 import { today, last7Days, uid } from './utils'
 import { getMuscleGroups, EXERCISE_MUSCLE_MAP } from './exerciseData'
@@ -19,6 +19,8 @@ const KEYS = {
   sleep: 'ht_sleep',
   dayScores: 'ht_day_scores',
   exerciseLibrary: 'ht_exercises_library',
+  habits: 'ht_habits',
+  habitLogs: 'ht_habit_logs',
 }
 
 function load<T>(key: string, fallback: T): T {
@@ -274,7 +276,77 @@ export async function syncAllFromRemote() {
     sleepStore.syncFromRemote(),
     dayScoreStore.syncFromRemote(),
     exerciseLibraryStore.syncFromRemote(),
+    habitStore.syncFromRemote(),
   ])
+}
+
+
+// ── Habits ────────────────────────────────────────────────────────────────────
+export const DEFAULT_HABITS: HabitDef[] = [
+  { id: 'gym', name: 'Gimnasio', description: 'Fuerza 3-4x por semana, el resto cardio suave para sumar pasos',
+    icon: 'dumbbell', kind: 'check', target: 1, auto: 'exercise', weeklyTarget: [3, 4], priority: 'high', order: 1 },
+  { id: 'lunch_prep', name: 'Almuerzo de mañana listo', description: 'Dejar preparado el almuerzo del día siguiente',
+    icon: 'chef', kind: 'check', target: 1, priority: 'high', order: 2 },
+  { id: 'piano', name: 'Piano', description: '30 minutos al día',
+    icon: 'music', kind: 'minutes', target: 30, unit: 'min', priority: 'high', order: 3 },
+  { id: 'journal', name: 'Planificación y diario', description: 'Priorizar tareas y registrar trabajo, proyectos y hábitos',
+    icon: 'notebook', kind: 'check', target: 1, priority: 'normal', order: 4 },
+  { id: 'pushups', name: 'Flexiones', description: '10 al día para seguir fuerza y core',
+    icon: 'activity', kind: 'count', target: 10, unit: 'reps', priority: 'normal', order: 5 },
+]
+
+export const habitStore = {
+  getDefs: (): HabitDef[] => {
+    const stored = load<HabitDef[] | null>(KEYS.habits, null)
+    if (stored) return stored.filter(h => !h.archived).sort((a, b) => a.order - b.order)
+    save(KEYS.habits, DEFAULT_HABITS)
+    return DEFAULT_HABITS
+  },
+
+  getLogs: () => load<HabitLog[]>(KEYS.habitLogs, []),
+
+  valueFor: (habitId: string, date: string): number =>
+    habitStore.getLogs().find(l => l.habitId === habitId && l.date === date)?.value ?? 0,
+
+  setValue: (habitId: string, date: string, value: number) => {
+    const id = `${habitId}_${date}`
+    const rest = habitStore.getLogs().filter(l => l.id !== id)
+    const v = Math.max(0, value)
+    save(KEYS.habitLogs, v > 0 ? [...rest, { id, habitId, date, value: v }] : rest)
+    if (v > 0) {
+      supabase?.from('habit_logs').upsert({ id, habit_id: habitId, date, value: v })
+        .then(({ error }) => { if (error) console.warn('Supabase habit_logs upsert:', error.message) })
+    } else {
+      supabase?.from('habit_logs').delete().eq('id', id)
+        .then(({ error }) => { if (error) console.warn('Supabase habit_logs delete:', error.message) })
+    }
+  },
+
+  isDone: (h: HabitDef, date: string): boolean => {
+    if (h.auto === 'exercise' && exerciseStore.forDate(date).length > 0) return true
+    return habitStore.valueFor(h.id, date) >= h.target
+  },
+
+  streak: (h: HabitDef): number => {
+    const d = new Date()
+    let n = 0
+    // today still pending doesn't break the streak
+    if (!habitStore.isDone(h, today())) d.setDate(d.getDate() - 1)
+    for (let i = 0; i < 400; i++) {
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      if (!habitStore.isDone(h, key)) break
+      n++
+      d.setDate(d.getDate() - 1)
+    }
+    return n
+  },
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('habit_logs').select('*')
+    if (error || !data) return
+    save(KEYS.habitLogs, data.map(r => ({ id: r.id, habitId: r.habit_id, date: r.date, value: r.value } as HabitLog)))
+  },
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────

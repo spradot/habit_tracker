@@ -166,3 +166,27 @@ export interface FoodCacheEntry {
   servingSize: number
   cachedAt: number
 }
+
+export type HabitKind = 'check' | 'count' | 'minutes'
+
+export interface HabitDef {
+  id: string
+  name: string
+  description?: string
+  icon: string                 // key into HABIT_ICONS (HabitsPage)
+  kind: HabitKind
+  target: number               // check = 1, count = reps, minutes = min
+  unit?: string
+  auto?: 'exercise'            // done automatically when a workout is logged that day
+  weeklyTarget?: [number, number] // [min, max] strength sessions per week (gym only)
+  priority: 'high' | 'normal'
+  order: number
+  archived?: boolean
+}
+
+export interface HabitLog {
+  id: string                   // `${habitId}_${date}`
+  habitId: string
+  date: string
+  value: number
+}
