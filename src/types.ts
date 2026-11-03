@@ -177,7 +177,7 @@ export interface HabitDef {
   kind: HabitKind
   target: number               // check = 1, count = reps, minutes = min
   unit?: string
-  auto?: 'exercise'            // done automatically when a workout is logged that day
+  auto?: 'exercise' | 'journal' // done automatically (workout logged / journal written that day)
   weeklyTarget?: [number, number] // [min, max] strength sessions per week (gym only)
   priority: 'high' | 'normal'
   order: number
@@ -189,4 +189,25 @@ export interface HabitLog {
   habitId: string
   date: string
   value: number
+}
+
+export interface JournalEntry {
+  date: string
+  priorities: { text: string; done: boolean }[]
+  work: string
+  personal: string
+  updatedAt: string            // ISO, used to resolve local vs remote conflicts
+}
+
+export interface ShoppingItem {
+  id: string
+  text: string
+  checked: boolean
+}
+
+export interface MealPrep {
+  lunches: Record<string, string> // YYYY-MM-DD -> what's planned for lunch that day
+  shoppingDow: number             // 0 = Sunday ... 6 = Saturday
+  shopping: ShoppingItem[]
+  updatedAt: string
 }

@@ -1,7 +1,7 @@
 import type {
   FoodEntry, ExerciseEntry, WeightEntry, StepsEntry, Settings, FoodCacheEntry,
   WeeklyPlan, WorkoutTemplate, BodyMeasurement, SleepEntry, DayScore, Badge, BadgeId, RewardState,
-  ExerciseLibraryEntry, HabitDef, HabitLog,
+  ExerciseLibraryEntry, HabitDef, HabitLog, JournalEntry, MealPrep,
 } from './types'
 import { today, last7Days, uid } from './utils'
 import { getMuscleGroups, EXERCISE_MUSCLE_MAP } from './exerciseData'
@@ -21,6 +21,8 @@ const KEYS = {
   exerciseLibrary: 'ht_exercises_library',
   habits: 'ht_habits',
   habitLogs: 'ht_habit_logs',
+  journal: 'ht_journal',
+  mealPrep: 'ht_meal_prep',
 }
 
 function load<T>(key: string, fallback: T): T {
@@ -277,6 +279,8 @@ export async function syncAllFromRemote() {
     dayScoreStore.syncFromRemote(),
     exerciseLibraryStore.syncFromRemote(),
     habitStore.syncFromRemote(),
+    journalStore.syncFromRemote(),
+    mealStore.syncFromRemote(),
   ])
 }
 
@@ -290,7 +294,7 @@ export const DEFAULT_HABITS: HabitDef[] = [
   { id: 'piano', name: 'Piano', description: '30 minutos al día',
     icon: 'music', kind: 'minutes', target: 30, unit: 'min', priority: 'high', order: 3 },
   { id: 'journal', name: 'Planificación y diario', description: 'Priorizar tareas y registrar trabajo, proyectos y hábitos',
-    icon: 'notebook', kind: 'check', target: 1, priority: 'normal', order: 4 },
+    icon: 'notebook', kind: 'check', target: 1, auto: 'journal', priority: 'normal', order: 4 },
   { id: 'pushups', name: 'Flexiones', description: '10 al día para seguir fuerza y core',
     icon: 'activity', kind: 'count', target: 10, unit: 'reps', priority: 'normal', order: 5 },
 ]
@@ -298,7 +302,11 @@ export const DEFAULT_HABITS: HabitDef[] = [
 export const habitStore = {
   getDefs: (): HabitDef[] => {
     const stored = load<HabitDef[] | null>(KEYS.habits, null)
-    if (stored) return stored.filter(h => !h.archived).sort((a, b) => a.order - b.order)
+    if (stored) {
+      // pick up `auto` rules added to default habits after the user's copy was first saved
+      return stored.filter(h => !h.archived).sort((a, b) => a.order - b.order)
+        .map(h => ({ ...h, auto: h.auto ?? DEFAULT_HABITS.find(d => d.id === h.id)?.auto }))
+    }
     save(KEYS.habits, DEFAULT_HABITS)
     return DEFAULT_HABITS
   },
@@ -324,6 +332,7 @@ export const habitStore = {
 
   isDone: (h: HabitDef, date: string): boolean => {
     if (h.auto === 'exercise' && exerciseStore.forDate(date).length > 0) return true
+    if (h.auto === 'journal' && journalStore.hasContent(date)) return true
     return habitStore.valueFor(h.id, date) >= h.target
   },
 
@@ -346,6 +355,81 @@ export const habitStore = {
     const { data, error } = await supabase.from('habit_logs').select('*')
     if (error || !data) return
     save(KEYS.habitLogs, data.map(r => ({ id: r.id, habitId: r.habit_id, date: r.date, value: r.value } as HabitLog)))
+  },
+}
+
+
+// ── Journal (planificación diaria) ────────────────────────────────────────────
+const journalTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+
+export const journalStore = {
+  getAll: () => load<JournalEntry[]>(KEYS.journal, []),
+
+  forDate: (date: string): JournalEntry =>
+    journalStore.getAll().find(e => e.date === date) ??
+    { date, priorities: [], work: '', personal: '', updatedAt: '' },
+
+  hasContent: (date: string): boolean => {
+    const e = journalStore.getAll().find(x => x.date === date)
+    return !!e && (e.priorities.some(p => p.text.trim()) || !!e.work.trim() || !!e.personal.trim())
+  },
+
+  save: (entry: JournalEntry) => {
+    const next = { ...entry, updatedAt: new Date().toISOString() }
+    save(KEYS.journal, [...journalStore.getAll().filter(e => e.date !== entry.date), next])
+    // debounce remote writes while typing
+    clearTimeout(journalTimers[entry.date])
+    journalTimers[entry.date] = setTimeout(() => {
+      supabase?.from('journal_entries').upsert({
+        date: next.date, priorities: next.priorities, work: next.work,
+        personal: next.personal, updated_at: next.updatedAt,
+      }).then(({ error }) => { if (error) console.warn('Supabase journal upsert:', error.message) })
+    }, 700)
+  },
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('journal_entries').select('*')
+    if (error || !data) return
+    const byDate = new Map(journalStore.getAll().map(e => [e.date, e]))
+    for (const r of data) {
+      const local = byDate.get(r.date)
+      if (!local || (r.updated_at ?? '') > local.updatedAt) {
+        byDate.set(r.date, {
+          date: r.date, priorities: r.priorities ?? [], work: r.work ?? '',
+          personal: r.personal ?? '', updatedAt: r.updated_at ?? '',
+        })
+      }
+    }
+    save(KEYS.journal, [...byDate.values()])
+  },
+}
+
+// ── Meal prep (almuerzos + compras) ───────────────────────────────────────────
+const DEFAULT_MEAL_PREP: MealPrep = { lunches: {}, shoppingDow: 6, shopping: [], updatedAt: '' }
+let mealTimer: ReturnType<typeof setTimeout> | undefined
+
+export const mealStore = {
+  get: (): MealPrep => ({ ...DEFAULT_MEAL_PREP, ...load<Partial<MealPrep>>(KEYS.mealPrep, {}) }),
+
+  update: (fn: (m: MealPrep) => MealPrep) => {
+    const next = { ...fn(mealStore.get()), updatedAt: new Date().toISOString() }
+    save(KEYS.mealPrep, next)
+    clearTimeout(mealTimer)
+    mealTimer = setTimeout(() => {
+      supabase?.from('meal_prep').upsert({ id: 'main', data: next, updated_at: next.updatedAt })
+        .then(({ error }) => { if (error) console.warn('Supabase meal_prep upsert:', error.message) })
+    }, 700)
+  },
+
+  lunchFor: (date: string): string => mealStore.get().lunches[date]?.trim() ?? '',
+
+  syncFromRemote: async () => {
+    if (!supabase) return
+    const { data, error } = await supabase.from('meal_prep').select('*').eq('id', 'main').maybeSingle()
+    if (error || !data?.data) return
+    const remote = data.data as MealPrep
+    if ((remote.updatedAt ?? '') > mealStore.get().updatedAt) save(KEYS.mealPrep, remote)
   },
 }
 

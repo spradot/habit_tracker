@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import {
   Dumbbell, ChefHat, Music, NotebookPen, Activity, Flame, Check, Plus, Minus,
-  ChevronLeft, ChevronRight, type LucideIcon,
+  ChevronLeft, ChevronRight, ShoppingCart, AlertCircle, type LucideIcon,
 } from 'lucide-react'
-import { habitStore, exerciseStore } from '../storage'
+import { habitStore, exerciseStore, mealStore } from '../storage'
 import { today } from '../utils'
 import type { HabitDef } from '../types'
 import Card from '../components/Card'
+import JournalCard from '../components/JournalCard'
+import MealPlanner from '../components/MealPlanner'
 
 const HABIT_ICONS: Record<string, LucideIcon> = {
   dumbbell: Dumbbell, chef: ChefHat, music: Music, notebook: NotebookPen, activity: Activity,
@@ -31,6 +33,7 @@ function longDate(date: string): string {
 
 export default function HabitsPage() {
   const [date, setDate] = useState(today())
+  const [view, setView] = useState<'today' | 'plan'>('today')
   const [, setTick] = useState(0)
   const refresh = () => setTick(t => t + 1)
 
@@ -43,6 +46,18 @@ export default function HabitsPage() {
   const strengthDays = week.filter(d => exerciseStore.forDate(d).some(e => e.category === 'strength')).length
   const gym = habits.find(h => h.weeklyTarget)
 
+  const meal = mealStore.get()
+  const dow = new Date().getDay()
+  const pendingItems = meal.shopping.filter(i => !i.checked).length
+  const lunchPrep = habits.find(h => h.id === 'lunch_prep')
+  const banners: { text: string; Icon: LucideIcon }[] = []
+  if (isToday) {
+    if (dow === meal.shoppingDow) banners.push({ text: `Hoy es día de compras (${pendingItems} productos pendientes en la lista).`, Icon: ShoppingCart })
+    else if ((dow + 1) % 7 === meal.shoppingDow) banners.push({ text: `Mañana es día de compras: revisa la lista (${pendingItems} pendientes).`, Icon: ShoppingCart })
+    if (lunchPrep && !habitStore.isDone(lunchPrep, date) && !mealStore.lunchFor(shiftDate(date, 1)))
+      banners.push({ text: 'Aún no definiste el almuerzo de mañana.', Icon: AlertCircle })
+  }
+
   const set = (h: HabitDef, v: number) => { habitStore.setValue(h.id, date, v); refresh() }
 
   return (
@@ -54,17 +69,37 @@ export default function HabitsPage() {
         </div>
         <div className="flex items-center gap-1">
           <button aria-label="Día anterior" onClick={() => setDate(shiftDate(date, -1))}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"><ChevronLeft size={18} /></button>
+            className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"><ChevronLeft size={18} /></button>
           {!isToday && (
             <button onClick={() => setDate(today())}
-              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-emerald-400">Hoy</button>
+              className="px-3 h-10 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-emerald-400">Hoy</button>
           )}
           <button aria-label="Día siguiente" disabled={isToday} onClick={() => setDate(shiftDate(date, 1))}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30"><ChevronRight size={18} /></button>
+            className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30"><ChevronRight size={18} /></button>
         </div>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_20rem] items-start">
+      <div className="flex gap-1 p-1 rounded-xl bg-slate-800 w-fit">
+        {([['today', 'Checklist'], ['plan', 'Almuerzos y compras']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setView(id)}
+            className={`h-9 px-4 rounded-lg text-sm transition-colors ${view === id ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'plan' && <MealPlanner onChange={refresh} />}
+
+      {view === 'today' && banners.map(b => (
+        <button key={b.text} onClick={() => setView('plan')}
+          className="w-full flex items-center gap-3 text-left p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm hover:bg-amber-500/15">
+          <b.Icon size={18} className="shrink-0" />
+          <span className="flex-1">{b.text}</span>
+          <span className="text-xs underline">Abrir</span>
+        </button>
+      ))}
+
+      <div className={`grid gap-4 lg:grid-cols-[1fr_20rem] items-start ${view === 'today' ? '' : 'hidden'}`}>
         <section className="space-y-3">
           <Card>
             <div className="flex items-center justify-between mb-2">
@@ -76,9 +111,11 @@ export default function HabitsPage() {
             </div>
           </Card>
 
-          {habits.map(h => (
-            <HabitCard key={h.id} habit={h} date={date} onSet={v => set(h, v)} />
-          ))}
+          {habits.map(h => h.auto === 'journal'
+            ? <JournalCard key={`${h.id}-${date}`} date={date} onChange={refresh} />
+            : <HabitCard key={h.id} habit={h} date={date} onSet={v => set(h, v)}
+                note={h.id === 'lunch_prep' ? lunchNote(date) : undefined} onPlan={() => setView('plan')} />
+          )}
         </section>
 
         <aside className="space-y-3">
@@ -91,14 +128,14 @@ export default function HabitsPage() {
                   <div className="flex gap-1 shrink-0">
                     {week.map(d => (
                       <span key={d} title={d}
-                        className={`w-4 h-4 rounded ${habitStore.isDone(h, d) ? 'bg-emerald-500' : d > today() ? 'bg-slate-800' : 'bg-slate-700'} ${d === date ? 'ring-1 ring-slate-300' : ''}`} />
+                        className={`w-4 h-4 shrink-0 rounded ${habitStore.isDone(h, d) ? 'bg-emerald-500' : d > today() ? 'border border-slate-700' : 'bg-slate-700'} ${d === date ? 'ring-1 ring-slate-300' : ''}`} />
                     ))}
                   </div>
                 </div>
               ))}
             </div>
             <div className="flex justify-end gap-1 mt-2 text-[10px] text-slate-500">
-              {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(l => <span key={l} className="w-4 text-center">{l}</span>)}
+              {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(l => <span key={l} className="w-4 shrink-0 text-center">{l}</span>)}
             </div>
           </Card>
 
@@ -121,7 +158,14 @@ export default function HabitsPage() {
   )
 }
 
-function HabitCard({ habit: h, date, onSet }: { habit: HabitDef; date: string; onSet: (v: number) => void }) {
+function lunchNote(date: string): string {
+  const next = mealStore.lunchFor(shiftDate(date, 1))
+  return next ? `Mañana: ${next}` : 'Mañana: sin planificar'
+}
+
+function HabitCard({ habit: h, date, onSet, note, onPlan }: {
+  habit: HabitDef; date: string; onSet: (v: number) => void; note?: string; onPlan: () => void
+}) {
   const Icon = HABIT_ICONS[h.icon] ?? Check
   const done = habitStore.isDone(h, date)
   const value = habitStore.valueFor(h.id, date)
@@ -146,6 +190,9 @@ function HabitCard({ habit: h, date, onSet }: { habit: HabitDef; date: string; o
             )}
           </div>
           {h.description && <p className="text-xs text-slate-400 mt-0.5">{h.description}</p>}
+          {note && (
+            <button onClick={onPlan} className="text-xs text-emerald-400 hover:underline mt-1 text-left">{note}</button>
+          )}
           {autoDone && <p className="text-xs text-emerald-400 mt-1">Completado por un entrenamiento registrado hoy</p>}
         </div>
 

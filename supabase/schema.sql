@@ -168,3 +168,25 @@ create index if not exists habit_logs_date_idx on habit_logs (date);
 alter table habit_logs enable row level security;
 drop policy if exists "allow all" on habit_logs;
 create policy "allow all" on habit_logs for all using (true) with check (true);
+
+-- ── Diario diario + almuerzos/compras ────────────────────────────────────────
+create table if not exists journal_entries (
+  date        text        primary key,           -- YYYY-MM-DD
+  priorities  jsonb       not null default '[]', -- [{text, done}]
+  work        text        not null default '',
+  personal    text        not null default '',
+  updated_at  text        not null default ''    -- ISO timestamp from the client
+);
+
+create table if not exists meal_prep (
+  id          text        primary key,           -- single row: 'main'
+  data        jsonb       not null default '{}', -- {lunches, shoppingDow, shopping}
+  updated_at  text        not null default ''
+);
+
+alter table journal_entries enable row level security;
+alter table meal_prep       enable row level security;
+drop policy if exists "allow all" on journal_entries;
+drop policy if exists "allow all" on meal_prep;
+create policy "allow all" on journal_entries for all using (true) with check (true);
+create policy "allow all" on meal_prep       for all using (true) with check (true);

@@ -92,6 +92,7 @@ export default function App() {
         ))}
         <button
           onClick={() => setTab('settings')}
+          aria-label="Ajustes"
           className={`px-3 flex flex-col items-center py-2 gap-0.5 text-xs transition-colors ${
             tab === 'settings' ? 'text-emerald-400' : 'text-slate-500 active:text-slate-200'
           }`}
