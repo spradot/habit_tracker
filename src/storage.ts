@@ -3,7 +3,7 @@ import type {
   WeeklyPlan, WorkoutTemplate, BodyMeasurement, SleepEntry, DayScore, Badge, BadgeId, RewardState,
   ExerciseLibraryEntry, HabitDef, HabitLog, JournalEntry, MealPrep,
 } from './types'
-import { today, last7Days, uid } from './utils'
+import { today, last7Days, uid, localDateStr } from './utils'
 import { getMuscleGroups, EXERCISE_MUSCLE_MAP } from './exerciseData'
 import { supabase } from './supabase'
 
@@ -624,6 +624,34 @@ export const sleepStore = {
 }
 
 // ── Day Scores / Rewards ──────────────────────────────────────────────────────
+// ── Streak helpers ───────────────────────────────────────────────────────────
+/** A day is "active" when it earned points from real activity (bonus excluded). */
+const isActiveScore = (s: DayScore) => s.points - s.breakdown.streakBonus > 0
+
+function shiftDay(date: string, delta: number): string {
+  const d = new Date(date + 'T12:00:00')
+  d.setDate(d.getDate() + delta)
+  return localDateStr(d)
+}
+
+/** Consecutive calendar days immediately before `date` that are active. */
+function streakBefore(date: string, active: Set<string>): number {
+  let n = 0
+  let d = shiftDay(date, -1)
+  while (active.has(d) && n < 365) { n++; d = shiftDay(d, -1) }
+  return n
+}
+
+/**
+ * Calories only count toward scoring and averages on days where food looks fully
+ * logged (2+ meals and 50% of the goal). Otherwise "did not log" is
+ * indistinguishable from "ate little".
+ */
+export function isFoodDayComplete(foods: { calories: number }[], calorieGoal: number): boolean {
+  const total = foods.reduce((s, f) => s + f.calories, 0)
+  return foods.length >= 2 && total >= calorieGoal * 0.5
+}
+
 export function computeDayScore(
   date: string,
   stepsEntry: { steps: number } | null,
@@ -662,9 +690,12 @@ export function computeDayScore(
     }
   }
 
-  const streakBonus = Math.min(streak * 10, 30)
+  // Streak bonus rewards consistency, so it only applies to days that already have
+  // real activity. Otherwise the bonus itself would keep the streak alive forever.
+  const basePoints = stepsPoints + exercisePoints + caloriePoints + prPoints + planCompliancePoints
+  const streakBonus = basePoints > 0 ? Math.min(streak * 10, 30) : 0
 
-  const points = stepsPoints + exercisePoints + caloriePoints + prPoints + planCompliancePoints + streakBonus
+  const points = basePoints + streakBonus
 
   return {
     date,
@@ -675,10 +706,12 @@ export function computeDayScore(
 
 function _computeLongestStreak(scores: DayScore[]): number {
   const sorted = [...scores].sort((a, b) => a.date.localeCompare(b.date))
-  let longest = 0, current = 0
+  let longest = 0, current = 0, prev = ''
   for (const s of sorted) {
-    if (s.points > 0) { current++; if (current > longest) longest = current }
-    else current = 0
+    if (!isActiveScore(s)) { current = 0; prev = ''; continue }
+    current = prev && shiftDay(prev, 1) === s.date ? current + 1 : 1
+    prev = s.date
+    if (current > longest) longest = current
   }
   return longest
 }
@@ -697,17 +730,23 @@ function _computeBadges(
 
   // week_warrior: 7 consecutive days with exercisePoints > 0
   const sorted = [...scores].sort((a, b) => a.date.localeCompare(b.date))
-  let streak = 0
+  let streak = 0, prevEx = ''
   for (const s of sorted) {
-    if (s.breakdown.exercisePoints > 0) { streak++; if (streak >= 7) { earned('week_warrior', s.date); break } }
-    else streak = 0
+    if (s.breakdown.exercisePoints > 0) {
+      streak = prevEx && shiftDay(prevEx, 1) === s.date ? streak + 1 : 1
+      prevEx = s.date
+      if (streak >= 7) { earned('week_warrior', s.date); break }
+    } else { streak = 0; prevEx = '' }
   }
 
   // calorie_sniper: 7 consecutive days with caloriePoints === 20
-  let calStreak = 0
+  let calStreak = 0, prevCal = ''
   for (const s of sorted) {
-    if (s.breakdown.caloriePoints === 20) { calStreak++; if (calStreak >= 7) { earned('calorie_sniper', s.date); break } }
-    else calStreak = 0
+    if (s.breakdown.caloriePoints === 20) {
+      calStreak = prevCal && shiftDay(prevCal, 1) === s.date ? calStreak + 1 : 1
+      prevCal = s.date
+      if (calStreak >= 7) { earned('calorie_sniper', s.date); break }
+    } else { calStreak = 0; prevCal = '' }
   }
 
   // step_master: 30 days total at goal
@@ -773,12 +812,13 @@ export const dayScoreStore = {
     const week = last7Days()
     const weekPoints = scores.filter(s => week.includes(s.date)).reduce((s, d) => s + d.points, 0)
 
-    const sorted = [...scores].reverse()
-    let streak = 0
-    for (const s of sorted) {
-      if (s.points > 0) streak++
-      else break
-    }
+    // Current streak: consecutive active calendar days ending today (or yesterday,
+    // since today may still be pending).
+    const activeDates = new Set(scores.filter(isActiveScore).map(s => s.date))
+    const t0 = today()
+    const streak = activeDates.has(t0)
+      ? streakBefore(t0, activeDates) + 1
+      : streakBefore(t0, activeDates)
 
     const exercises = load<ExerciseEntry[]>(KEYS.exercise, [])
     const measurements = load<BodyMeasurement[]>(KEYS.bodyMeasurements, [])
@@ -813,14 +853,14 @@ export function backfillScores() {
   const plan = workoutPlanStore.getActive()
 
   // Walk chronologically, tracking the running streak going into each day
-  let runningStreak = 0
+  const activeDates = new Set<string>()
   const newScores: DayScore[] = []
 
   for (const date of dates) {
     const exercises = allExercise.filter(e => e.date === date)
     const steps     = allSteps.find(e => e.date === date) ?? null
     const foods     = allFood.filter(e => e.date === date)
-    const cals      = foods.reduce((s, f) => s + f.calories, 0)
+    const cals      = isFoodDayComplete(foods, settings.goals.calories) ? foods.reduce((s, f) => s + f.calories, 0) : 0
 
     let template: WorkoutTemplate | null = null
     if (plan) {
@@ -832,14 +872,14 @@ export function backfillScores() {
       }
     }
 
-    const score = computeDayScore(date, steps, settings.goals.steps, exercises, cals, settings.goals.calories, template, runningStreak)
+    const score = computeDayScore(date, steps, settings.goals.steps, exercises, cals, settings.goals.calories, template, streakBefore(date, activeDates))
     newScores.push(score)
-    runningStreak = score.points > 0 ? runningStreak + 1 : 0
+    if (isActiveScore(score)) activeDates.add(date)
   }
 
   // Merge with existing scores (keep any dates not in our activity set)
-  const existing = load<DayScore[]>(KEYS.dayScores, []).filter(s => !dateSet.has(s.date))
-  save(KEYS.dayScores, [...existing, ...newScores])
+  // Scores are derived data: drop any for days with no activity (phantom rows).
+  save(KEYS.dayScores, newScores)
 
   // Batch upsert to Supabase
   if (supabase && newScores.length > 0) {
@@ -865,7 +905,7 @@ export function refreshTodayScore() {
   const exercises = load<ExerciseEntry[]>(KEYS.exercise, []).filter(e => e.date === t)
   const steps = load<StepsEntry[]>(KEYS.steps, []).find(e => e.date === t) ?? null
   const foods = load<FoodEntry[]>(KEYS.food, []).filter(e => e.date === t)
-  const cals = foods.reduce((s, f) => s + f.calories, 0)
+  const cals = isFoodDayComplete(foods, settings.goals.calories) ? foods.reduce((s, f) => s + f.calories, 0) : 0
 
   const plan = workoutPlanStore.getActive()
   let template: WorkoutTemplate | null = null
@@ -878,13 +918,7 @@ export function refreshTodayScore() {
     }
   }
 
-  const allScores = dayScoreStore.getAll().sort((a, b) => a.date.localeCompare(b.date)).reverse()
-  let streak = 0
-  for (const s of allScores) {
-    if (s.date === t) continue
-    if (s.points > 0) streak++
-    else break
-  }
+  const streak = streakBefore(t, new Set(dayScoreStore.getAll().filter(isActiveScore).map(s => s.date)))
 
   const score = computeDayScore(t, steps, settings.goals.steps, exercises, cals, settings.goals.calories, template, streak)
   dayScoreStore.upsert(score)

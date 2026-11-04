@@ -75,9 +75,11 @@ export function dataTDEE(
 
   // Days that have both calorie and weight data
   const weightDates = new Set(recentWeights.map(e => e.date))
+  // Only fully-logged food days count (2+ meals, 800+ kcal); a lone snack would
+  // otherwise drag the average down and inflate the estimated TDEE gap.
   const daysWithBoth = [...weightDates].filter(d => {
-    const cals = foodEntries.filter(f => f.date === d).reduce((s, f) => s + f.calories, 0)
-    return cals > 0
+    const meals = foodEntries.filter(f => f.date === d)
+    return meals.length >= 2 && meals.reduce((s, f) => s + f.calories, 0) >= 800
   })
   if (daysWithBoth.length < 3) return null
 
