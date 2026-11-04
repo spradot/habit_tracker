@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Bell, BellOff, Check } from 'lucide-react'
 import { settingsStore, DEFAULT_SETTINGS } from '../storage'
 import { requestPermission } from '../notifications'
+import { isNativeAndroid, syncHealthConnect } from '../healthConnect'
 import { ACTIVITY_LABELS } from '../tdee'
 import type { Settings, PersonalStats } from '../types'
 import Card from '../components/Card'
@@ -9,6 +10,21 @@ import Card from '../components/Card'
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(settingsStore.get())
   const [saved, setSaved] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+
+  const runHealthSync = async () => {
+    setSyncing(true)
+    setSyncMsg('')
+    try {
+      const r = await syncHealthConnect(14)
+      setSyncMsg(`Listo: ${r.stepsDays} días de pasos, ${r.meals} comidas y ${r.weights} pesos importados.`)
+    } catch (e) {
+      setSyncMsg(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const update = (patch: Partial<Settings>) => setSettings(s => ({ ...s, ...patch }))
   const updateGoals = (patch: Partial<Settings['goals']>) => setSettings(s => ({ ...s, goals: { ...s.goals, ...patch } }))
@@ -42,6 +58,23 @@ export default function SettingsPage() {
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-lg font-bold">Settings</h2>
+
+      {/* Health Connect */}
+      <Card className="space-y-3">
+        <p className="text-sm font-medium">Health Connect</p>
+        <p className="text-xs text-slate-400">
+          Importa los últimos 14 días: pasos (Mi Fitness), comidas con macros y peso (Fitia).
+        </p>
+        <button
+          onClick={runHealthSync}
+          disabled={syncing || !isNativeAndroid()}
+          className="w-full bg-emerald-600 rounded-xl py-2 text-sm font-medium disabled:opacity-50"
+        >
+          {syncing ? 'Sincronizando…' : 'Sincronizar ahora'}
+        </button>
+        {!isNativeAndroid() && <p className="text-xs text-amber-400">Solo disponible en la app Android.</p>}
+        {syncMsg && <p className="text-xs text-slate-300">{syncMsg}</p>}
+      </Card>
 
       {/* Daily goals */}
       <Card className="space-y-3">
