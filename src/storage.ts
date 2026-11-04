@@ -43,6 +43,7 @@ export const foodStore = {
   getAll: () => load<FoodEntry[]>(KEYS.food, []),
   save: (entries: FoodEntry[]) => save(KEYS.food, entries),
 
+  /** @deprecated Manual food entry was removed; meals are imported from Fitia via Health Connect. */
   add: (entry: FoodEntry) => {
     const all = foodStore.getAll()
     foodStore.save([...all, entry])

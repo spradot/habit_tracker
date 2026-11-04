@@ -214,7 +214,7 @@ export default function Dashboard({ onNavigate }: Props) {
       {/* Quick-log shortcuts */}
       <div className="flex gap-2">
         <button onClick={() => onNavigate('calories')} className="flex-1 flex items-center justify-center gap-2 bg-slate-800 rounded-2xl py-3 text-sm text-slate-300 active:bg-slate-700">
-          <Utensils size={16} /> Log meal
+          <Utensils size={16} /> View meals
         </button>
         <button onClick={() => onNavigate('exercise')} className="flex-1 flex items-center justify-center gap-2 bg-slate-800 rounded-2xl py-3 text-sm text-slate-300 active:bg-slate-700">
           <Dumbbell size={16} /> Log workout
