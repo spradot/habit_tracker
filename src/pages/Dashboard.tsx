@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Dumbbell, Utensils, Scale, Sparkles, Loader, Footprints, Activity, Flame } from 'lucide-react'
-import { foodStore, exerciseStore, weightStore, stepsStore, settingsStore, dayScoreStore, bodyMeasurementStore } from '../storage'
+import { foodStore, exerciseStore, weightStore, stepsStore, settingsStore, dayScoreStore, bodyMeasurementStore, isFoodDayComplete } from '../storage'
 import { getWeightLossInsight } from '../gemini'
 import { today, last7Days, kgToLbs } from '../utils'
 import Card from '../components/Card'
 import RingProgress from '../components/RingProgress'
 import TDEECard from '../components/TDEECard'
+import WeeklyPanel from '../components/WeeklyPanel'
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, CartesianGrid } from 'recharts'
 import type { Tab } from '../App'
 
@@ -33,7 +34,11 @@ export default function Dashboard({ onNavigate }: Props) {
     exercise: exerciseStore.forDate(d).length,
   }))
 
-  const weeklyAvgCals = Math.round(weeklyData.reduce((s, d) => s + d.calories, 0) / 7)
+  // Average only over days with food fully logged; dividing by 7 counted unlogged days as 0 kcal.
+  const completeCalDays = days7.filter(d => isFoodDayComplete(foodStore.forDate(d), goal))
+  const weeklyAvgCals = completeCalDays.length
+    ? Math.round(completeCalDays.reduce((s, d) => s + foodStore.forDate(d).reduce((a, f) => a + f.calories, 0), 0) / completeCalDays.length)
+    : 0
   const daysWithExercise = weeklyData.filter(d => d.exercise > 0).length
 
   const allWeights = weightStore.getAll().sort((a, b) => a.date.localeCompare(b.date))
@@ -225,6 +230,7 @@ export default function Dashboard({ onNavigate }: Props) {
       </div>
 
       {/* TDEE calculator */}
+      <WeeklyPanel />
       <TDEECard onGoalApplied={cal => setCalorieGoal(cal)} />
 
       {/* AI insight */}
